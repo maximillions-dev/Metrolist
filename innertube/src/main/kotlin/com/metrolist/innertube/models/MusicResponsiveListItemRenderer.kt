@@ -38,16 +38,6 @@ data class MusicResponsiveListItemRenderer(
         get() = navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType == MUSIC_PAGE_TYPE_ARTIST
                 || navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType == MUSIC_PAGE_TYPE_LIBRARY_ARTIST
 
-    val musicVideoType: String?
-        get() =
-            overlay
-                ?.musicItemThumbnailOverlayRenderer
-                ?.content
-                ?.musicPlayButtonRenderer
-                ?.playNavigationEndpoint
-                ?.musicVideoType
-                ?: navigationEndpoint?.musicVideoType
-
     @Serializable
     data class FlexColumn(
         @JsonNames("musicResponsiveListItemFixedColumnRenderer")

@@ -240,6 +240,9 @@
     <string name="dark_theme_off">Off</string>
     <string name="dark_theme_follow_system">Follow system</string>
     <string name="pure_black">Pure black</string>
+    <string name="mini_player">Mini-player</string>
+    <string name="pure_black_mini_player">Pure black mini-player</string>
+    <string name="mini_player_outline">Mini-player outline</string>
     <string name="customize_navigation_tabs">Customize navigation tabs</string>
     <string name="player">Player</string>
     <string name="player_text_alignment">Player text alignment</string>
@@ -289,6 +292,13 @@
     <string name="stop_music_on_task_clear">Stop music on task clear</string>
     <string name="equalizer">Equalizer</string>
 
+    <string name="crossfade">Crossfade</string>
+    <string name="crossfade_enabled">Enable Crossfade</string>
+    <string name="crossfade_trigger_position">Trigger position</string>
+    <string name="crossfade_duration">Fade duration</string>
+    <string name="crossfade_automatic_on_silence">Automatic on silence</string>
+    <string name="crossfade_curve">Fade curve</string>
+
     <string name="storage">Storage</string>
     <string name="cache">Cache</string>
     <string name="image_cache">Image Cache</string>
@@ -318,7 +328,6 @@
     <string name="enable_lrclib">Enable LrcLib lyrics provider</string>
     <string name="enable_kugou">Enable KuGou lyrics provider</string>
     <string name="hide_explicit">Hide explicit content</string>
-
 
     <string name="backup_restore">Backup and restore</string>
     <string name="action_backup">Backup</string>

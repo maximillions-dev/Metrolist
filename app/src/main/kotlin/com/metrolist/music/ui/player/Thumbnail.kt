@@ -1,8 +1,3 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.ui.player
 
 import androidx.compose.animation.AnimatedVisibility
@@ -21,7 +16,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -80,7 +74,6 @@ import com.metrolist.music.constants.SeekExtraSeconds
 import com.metrolist.music.constants.SwipeThumbnailKey
 import com.metrolist.music.constants.ThumbnailCornerRadius
 import com.metrolist.music.constants.HidePlayerThumbnailKey
-import com.metrolist.music.ui.component.CastButton
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.delay
@@ -243,43 +236,28 @@ fun Thumbnail(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Now Playing header with Cast button
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                // Now Playing header
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 16.dp)
                 ) {
-                    // Now playing text centered
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(horizontal = 48.dp) // Make room for Cast button
-                    ) {
-                        Text(
-                            text = stringResource(R.string.now_playing),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = textBackgroundColor
-                        )
-                        // Show album title or queue title
-                        val playingFrom = queueTitle ?: mediaMetadata?.album?.title
-                        if (!playingFrom.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = playingFrom,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = textBackgroundColor.copy(alpha = 0.8f),
-                                maxLines = 1,
-                                modifier = Modifier.basicMarquee()
-                            )
-                        }
-                    }
-                    
-                    // Cast button in top right
-                    com.metrolist.music.ui.component.CastButton(
-                        modifier = Modifier.align(Alignment.CenterEnd),
-                        tintColor = textBackgroundColor
+                    Text(
+                        text = stringResource(R.string.now_playing),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = textBackgroundColor
                     )
+                    // Show album title or queue title
+                    val playingFrom = queueTitle ?: mediaMetadata?.album?.title
+                    if (!playingFrom.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = playingFrom,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = textBackgroundColor.copy(alpha = 0.8f),
+                            maxLines = 1,
+                            modifier = Modifier.basicMarquee()
+                        )
+                    }
                 }
                 
                 // Thumbnail content

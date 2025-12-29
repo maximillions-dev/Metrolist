@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v5
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
       - name: Install SDK components
@@ -49,7 +49,7 @@ jobs:
           fi
 
       - name: Build and Lint Universal Debug APK
-        run: ./gradlew --no-configuration-cache --console=plain clean assembleUniversalFossDebug :app:lintUniversalFossDebug --warning-mode summary
+        run: ./gradlew --no-configuration-cache --console=plain clean assembleUniversalDebug :app:lintUniversalDebug --warning-mode summary
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           PULL_REQUEST: 'true'
@@ -57,7 +57,7 @@ jobs:
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
 
       - name: Upload APK
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: app-universal-debug-pr-${{ github.event.number }}
-          path: app/build/outputs/apk/universalFoss/debug/*.apk
+          path: app/build/outputs/apk/universal/debug/*.apk

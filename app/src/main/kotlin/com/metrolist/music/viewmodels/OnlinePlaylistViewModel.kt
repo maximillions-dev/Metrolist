@@ -1,25 +1,14 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.viewmodels
 
-import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.PlaylistItem
 import com.metrolist.innertube.models.SongItem
-import com.metrolist.innertube.models.filterVideoSongs
-import com.metrolist.music.constants.HideVideoSongsKey
 import com.metrolist.music.db.MusicDatabase
-import com.metrolist.music.utils.dataStore
-import com.metrolist.music.utils.get
 import com.metrolist.music.utils.reportException
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,7 +21,6 @@ import javax.inject.Inject
 
 @HiltViewModel
 class OnlinePlaylistViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
     savedStateHandle: SavedStateHandle,
     database: MusicDatabase
 ) : ViewModel() {
@@ -72,7 +60,7 @@ class OnlinePlaylistViewModel @Inject constructor(
             YouTube.playlist(playlistId)
                 .onSuccess { playlistPage ->
                     playlist.value = playlistPage.playlist
-                    playlistSongs.value = applySongFilters(playlistPage.songs)
+                    playlistSongs.value = playlistPage.songs.distinctBy { it.id }
                     continuation = playlistPage.songsContinuation
                     _isLoading.value = false
                     if (continuation != null) {
@@ -102,7 +90,7 @@ class OnlinePlaylistViewModel @Inject constructor(
                     .onSuccess { playlistContinuationPage ->
                         val currentSongs = playlistSongs.value.toMutableList()
                         currentSongs.addAll(playlistContinuationPage.songs)
-                        playlistSongs.value = applySongFilters(currentSongs)
+                        playlistSongs.value = currentSongs.distinctBy { it.id }
                         currentProactiveToken = playlistContinuationPage.continuation
                         // Update the class-level continuation for manual loadMore if needed
                         this@OnlinePlaylistViewModel.continuation = currentProactiveToken 
@@ -128,7 +116,7 @@ class OnlinePlaylistViewModel @Inject constructor(
                 .onSuccess { playlistContinuationPage ->
                     val currentSongs = playlistSongs.value.toMutableList()
                     currentSongs.addAll(playlistContinuationPage.songs)
-                    playlistSongs.value = applySongFilters(currentSongs)
+                    playlistSongs.value = currentSongs.distinctBy { it.id }
                     continuation = playlistContinuationPage.continuation
                 }.onFailure { throwable ->
                     reportException(throwable)
@@ -145,13 +133,6 @@ class OnlinePlaylistViewModel @Inject constructor(
     fun retry() {
         proactiveLoadJob?.cancel()
         fetchInitialPlaylistData() // This will also restart proactive loading if applicable
-    }
-
-    private fun applySongFilters(songs: List<SongItem>): List<SongItem> {
-        val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
-        return songs
-            .distinctBy { it.id }
-            .filterVideoSongs(hideVideoSongs)
     }
 
     override fun onCleared() {

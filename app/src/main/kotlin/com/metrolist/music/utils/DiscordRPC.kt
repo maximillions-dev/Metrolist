@@ -1,8 +1,3 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.utils
 
 import android.content.Context
@@ -17,19 +12,19 @@ class DiscordRPC(
 ) : KizzyRPC(token) {
     suspend fun updateSong(song: Song, currentPlaybackTimeMillis: Long, playbackSpeed: Float = 1.0f, useDetails: Boolean = false) = runCatching {
         val currentTime = System.currentTimeMillis()
-
+        
         val adjustedPlaybackTime = (currentPlaybackTimeMillis / playbackSpeed).toLong()
         val calculatedStartTime = currentTime - adjustedPlaybackTime
-
+        
         val songTitleWithRate = if (playbackSpeed != 1.0f) {
             "${song.song.title} [${String.format("%.2fx", playbackSpeed)}]"
         } else {
             song.song.title
         }
-
+        
         val remainingDuration = song.song.duration * 1000L - currentPlaybackTimeMillis
         val adjustedRemainingDuration = (remainingDuration / playbackSpeed).toLong()
-
+        
         setActivity(
             name = context.getString(R.string.app_name).removeSuffix(" Debug"),
             details = songTitleWithRate,
@@ -52,9 +47,6 @@ class DiscordRPC(
         )
     }
 
-    override suspend fun close() {
-        super.close()
-    }
     companion object {
         private const val APPLICATION_ID = "1411019391843172514"
     }

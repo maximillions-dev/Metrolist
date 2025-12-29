@@ -1,8 +1,3 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.viewmodels
 
 import android.content.Context
@@ -13,12 +8,10 @@ import com.metrolist.innertube.models.PlaylistItem
 import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.innertube.models.YTItem
 import com.metrolist.innertube.models.filterExplicit
-import com.metrolist.innertube.models.filterVideoSongs
 import com.metrolist.innertube.pages.ExplorePage
 import com.metrolist.innertube.pages.HomePage
 import com.metrolist.innertube.utils.completed
 import com.metrolist.music.constants.HideExplicitKey
-import com.metrolist.music.constants.HideVideoSongsKey
 import com.metrolist.music.constants.InnerTubeCookieKey
 import com.metrolist.music.constants.QuickPicks
 import com.metrolist.music.constants.QuickPicksKey
@@ -35,21 +28,11 @@ import com.metrolist.music.utils.reportException
 import com.metrolist.music.utils.SyncUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import com.metrolist.music.constants.ShowWrappedCardKey
-import com.metrolist.music.constants.WrappedSeenKey
-import com.metrolist.music.ui.screens.wrapped.WrappedAudioService
-import com.metrolist.music.ui.screens.wrapped.WrappedManager
-import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import androidx.datastore.preferences.core.edit
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -58,8 +41,6 @@ class HomeViewModel @Inject constructor(
     @ApplicationContext val context: Context,
     val database: MusicDatabase,
     val syncUtils: SyncUtils,
-    val wrappedManager: WrappedManager,
-    private val wrappedAudioService: WrappedAudioService,
 ) : ViewModel() {
     val isRefreshing = MutableStateFlow(false)
     val isLoading = MutableStateFlow(false)
@@ -84,25 +65,6 @@ class HomeViewModel @Inject constructor(
     val accountName = MutableStateFlow("Guest")
     val accountImageUrl = MutableStateFlow<String?>(null)
 
-	val showWrappedCard: StateFlow<Boolean> = context.dataStore.data.map { prefs ->
-        val showWrappedPref = prefs[ShowWrappedCardKey] ?: false
-        val seen = prefs[WrappedSeenKey] ?: false
-        val isBeforeDate = LocalDate.now().isBefore(LocalDate.of(2026, 1, 10))
-
-        isBeforeDate && (!seen || showWrappedPref)
-    }.stateIn(viewModelScope, SharingStarted.Lazily, false)
-
-    val wrappedSeen: StateFlow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[WrappedSeenKey] ?: false
-    }.stateIn(viewModelScope, SharingStarted.Lazily, false)
-
-    fun markWrappedAsSeen() {
-        viewModelScope.launch(Dispatchers.IO) {
-            context.dataStore.edit {
-                it[WrappedSeenKey] = true
-            }
-        }
-    }
     // Track last processed cookie to avoid unnecessary updates
     private var lastProcessedCookie: String? = null
     // Track if we're currently processing account data
@@ -123,7 +85,6 @@ class HomeViewModel @Inject constructor(
     private suspend fun load() {
         isLoading.value = true
         val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-        val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
 
         getQuickPicks()
         forgottenFavorites.value = database.forgottenFavorites().first().shuffled().take(20)
@@ -153,11 +114,7 @@ class HomeViewModel @Inject constructor(
                 }
                 SimilarRecommendation(
                     title = it,
-                    items = items
-                        .filterExplicit(hideExplicit)
-                        .filterVideoSongs(hideVideoSongs)
-                        .shuffled()
-                        .ifEmpty { return@mapNotNull null }
+                    items = items.filterExplicit(hideExplicit).shuffled().ifEmpty { return@mapNotNull null }
                 )
             }
 
@@ -174,7 +131,6 @@ class HomeViewModel @Inject constructor(
                             page.artists.shuffled().take(4) +
                             page.playlists.shuffled().take(4))
                         .filterExplicit(hideExplicit)
-                        .filterVideoSongs(hideVideoSongs)
                         .shuffled()
                         .ifEmpty { return@mapNotNull null }
                 )
@@ -184,7 +140,7 @@ class HomeViewModel @Inject constructor(
         YouTube.home().onSuccess { page ->
             homePage.value = page.copy(
                 sections = page.sections.map { section ->
-                    section.copy(items = section.items.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs))
+                    section.copy(items = section.items.filterExplicit(hideExplicit))
                 }
             )
         }.onFailure {
@@ -211,7 +167,6 @@ class HomeViewModel @Inject constructor(
     fun loadMoreYouTubeItems(continuation: String?) {
         if (continuation == null || _isLoadingMore.value) return
         val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-        val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
 
         viewModelScope.launch(Dispatchers.IO) {
             _isLoadingMore.value = true
@@ -223,7 +178,7 @@ class HomeViewModel @Inject constructor(
             homePage.value = nextSections.copy(
                 chips = homePage.value?.chips,
                 sections = (homePage.value?.sections.orEmpty() + nextSections.sections).map { section ->
-                    section.copy(items = section.items.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs))
+                    section.copy(items = section.items.filterExplicit(hideExplicit))
                 }
             )
             _isLoadingMore.value = false
@@ -244,13 +199,12 @@ class HomeViewModel @Inject constructor(
 
         viewModelScope.launch(Dispatchers.IO) {
             val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-            val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
             val nextSections = YouTube.home(params = chip?.endpoint?.params).getOrNull() ?: return@launch
 
             homePage.value = nextSections.copy(
                 chips = homePage.value?.chips,
                 sections = nextSections.sections.map { section ->
-                    section.copy(items = section.items.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs))
+                    section.copy(items = section.items.filterExplicit(hideExplicit))
                 }
             )
             selectedChip.value = chip
@@ -278,22 +232,6 @@ class HomeViewModel @Inject constructor(
             val isSyncEnabled = context.dataStore.get(YtmSyncKey, true)
             if (isSyncEnabled) {
                 syncUtils.runAllSyncs()
-            }
-
-            try {
-                if (showWrappedCard.first()) {
-                    android.util.Log.d("HomeViewModel", "Preparing Wrapped data")
-                    wrappedManager.prepare()
-                    val state = wrappedManager.state.first() // Correctly get the state object
-                    val trackMap = state.trackMap
-                    if (trackMap.isNotEmpty()) {
-                        val firstTrackId = trackMap.entries.first().value
-                        wrappedAudioService.prepareTrack(firstTrackId)
-                    }
-                    android.util.Log.d("HomeViewModel", "Wrapped data prepared")
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("HomeViewModel", "Error preparing Wrapped data", e)
             }
         }
 

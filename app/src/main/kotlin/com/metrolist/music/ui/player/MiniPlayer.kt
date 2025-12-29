@@ -1,8 +1,3 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.ui.player
 
 import android.content.res.Configuration
@@ -66,7 +61,6 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -86,16 +80,13 @@ import com.metrolist.music.constants.SwipeSensitivityKey
 import com.metrolist.music.constants.ThumbnailCornerRadius
 import com.metrolist.music.constants.UseNewMiniPlayerDesignKey
 import com.metrolist.music.db.entities.ArtistEntity
+import com.metrolist.music.extensions.togglePlayPause
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.launch
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
-import com.metrolist.music.constants.DarkModeKey
-import com.metrolist.music.ui.screens.settings.DarkMode
-import com.metrolist.music.utils.rememberEnumPreference
 
 @Composable
 fun MiniPlayer(
@@ -142,26 +133,13 @@ private fun NewMiniPlayer(
     val (pureBlack, onPureBlackChange) = rememberPreference(PureBlackMiniPlayerKey, defaultValue = false)
     val playerConnection = LocalPlayerConnection.current ?: return
     val database = LocalDatabase.current
-    val isSystemInDarkTheme = isSystemInDarkTheme()
-    val darkTheme by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.AUTO)
-    val useDarkTheme = remember(darkTheme, isSystemInDarkTheme) {
-        if (darkTheme == DarkMode.AUTO) isSystemInDarkTheme else darkTheme == DarkMode.ON
-    }
     val isPlaying by playerConnection.isPlaying.collectAsState()
     val playbackState by playerConnection.playbackState.collectAsState()
     val error by playerConnection.error.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val canSkipNext by playerConnection.canSkipNext.collectAsState()
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsState()
-    
-    // Cast state
-    val castHandler = playerConnection.service.castConnectionHandler
-    val isCasting by castHandler?.isCasting?.collectAsState() ?: remember { mutableStateOf(false) }
-    val castIsPlaying by castHandler?.castIsPlaying?.collectAsState() ?: remember { mutableStateOf(false) }
-    val castDeviceName by castHandler?.castDeviceName?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
-    
-    // Use Cast state when casting
-    val effectiveIsPlaying = if (isCasting) castIsPlaying else isPlaying
+    val miniPlayerOutline by rememberPreference(MiniPlayerOutlineKey, defaultValue = true)
 
     val currentView = LocalView.current
     val layoutDirection = LocalLayoutDirection.current
@@ -183,7 +161,7 @@ private fun NewMiniPlayer(
     )
 
     val overlayAlpha by animateFloatAsState(
-        targetValue = if (effectiveIsPlaying) 0.0f else 0.4f,
+        targetValue = if (isPlaying) 0.0f else 0.4f,
         label = "overlay_alpha",
         animationSpec = animationSpec
     )
@@ -294,10 +272,10 @@ private fun NewMiniPlayer(
                 .offset { IntOffset(offsetXAnimatable.value.roundToInt(), 0) }
                 .clip(RoundedCornerShape(32.dp)) // Clip first for perfect rounded corners
                 .background(
-                    color = if (pureBlack && useDarkTheme) Color.Black else MaterialTheme.colorScheme.surfaceContainer
+                    color = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer
                 )
                 .border(
-                    width = 1.dp,
+                    width = if (miniPlayerOutline) 1.dp else 0.dp,
                     color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
                     shape = RoundedCornerShape(32.dp)
                 )
@@ -336,17 +314,11 @@ private fun NewMiniPlayer(
                                 shape = CircleShape
                             )
                             .clickable {
-                                if (isCasting) {
-                                    if (castIsPlaying) {
-                                        castHandler?.pause()
-                                    } else {
-                                        castHandler?.play()
-                                    }
-                                } else if (playbackState == Player.STATE_ENDED) {
+                                if (playbackState == Player.STATE_ENDED) {
                                     playerConnection.player.seekTo(0, 0)
                                     playerConnection.player.playWhenReady = true
                                 } else {
-                                    playerConnection.togglePlayPause()
+                                    playerConnection.player.togglePlayPause()
                                 }
                             }
                     ) {
@@ -373,7 +345,7 @@ private fun NewMiniPlayer(
                         )
 
                         androidx.compose.animation.AnimatedVisibility(
-                            visible = playbackState == Player.STATE_ENDED || !effectiveIsPlaying,
+                            visible = playbackState == Player.STATE_ENDED || !isPlaying,
                             enter = fadeIn(),
                             exit = fadeOut()
                         ) {
@@ -441,7 +413,7 @@ private fun NewMiniPlayer(
                             exit = fadeOut(),
                         ) {
                             Text(
-                                text = stringResource(R.string.error_playing),
+                                text = "Error playing",
                                 color = MaterialTheme.colorScheme.error,
                                 fontSize = 10.sp,
                                 maxLines = 1,
@@ -452,17 +424,6 @@ private fun NewMiniPlayer(
                 }
 
                 Spacer(modifier = Modifier.width(12.dp))
-                
-                // Cast indicator (simple icon, no button styling)
-                if (isCasting) {
-                    Icon(
-                        painter = painterResource(R.drawable.cast_connected),
-                        contentDescription = "Casting",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                }
 
                 // Subscribe/Subscribed button
                 mediaMetadata?.let { metadata ->
@@ -588,14 +549,6 @@ private fun LegacyMiniPlayer(
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val canSkipNext by playerConnection.canSkipNext.collectAsState()
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsState()
-    
-    // Cast state
-    val castHandler = playerConnection.service.castConnectionHandler
-    val isCasting by castHandler?.isCasting?.collectAsState() ?: remember { mutableStateOf(false) }
-    val castIsPlaying by castHandler?.castIsPlaying?.collectAsState() ?: remember { mutableStateOf(false) }
-    
-    // Use Cast state when casting
-    val effectiveIsPlaying = if (isCasting) castIsPlaying else isPlaying
 
     val currentView = LocalView.current
     val layoutDirection = LocalLayoutDirection.current
@@ -639,7 +592,7 @@ private fun LegacyMiniPlayer(
             // preventing sharp edges when the width is reduced.
             .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
             .background(
-                if (pureBlack && isSystemInDarkTheme())
+                if (pureBlack)
                     Color.Black
                 else
                     MaterialTheme.colorScheme.surfaceContainer // Fixed background independent of player background
@@ -739,17 +692,11 @@ private fun LegacyMiniPlayer(
 
             IconButton(
                 onClick = {
-                    if (isCasting) {
-                        if (castIsPlaying) {
-                            castHandler?.pause()
-                        } else {
-                            castHandler?.play()
-                        }
-                    } else if (playbackState == Player.STATE_ENDED) {
+                    if (playbackState == Player.STATE_ENDED) {
                         playerConnection.player.seekTo(0, 0)
                         playerConnection.player.playWhenReady = true
                     } else {
-                        playerConnection.togglePlayPause()
+                        playerConnection.player.togglePlayPause()
                     }
                 },
             ) {
@@ -757,7 +704,7 @@ private fun LegacyMiniPlayer(
                     painter = painterResource(
                         if (playbackState == Player.STATE_ENDED) {
                             R.drawable.replay
-                        } else if (effectiveIsPlaying) {
+                        } else if (isPlaying) {
                             R.drawable.pause
                         } else {
                             R.drawable.play

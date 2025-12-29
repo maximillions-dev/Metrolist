@@ -1,8 +1,3 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.lyrics
 
 import android.content.Context
@@ -37,7 +32,6 @@ constructor(
 ) {
     private var lyricsProviders =
         listOf(
-            BetterLyricsProvider,
             LrcLibLyricsProvider,
             KuGouLyricsProvider,
             YouTubeSubtitleLyricsProvider,
@@ -50,29 +44,22 @@ constructor(
                 it[PreferredLyricsProviderKey].toEnum(PreferredLyricsProvider.LRCLIB)
             }.distinctUntilChanged()
             .map {
-                lyricsProviders = when (it) {
-                    PreferredLyricsProvider.LRCLIB -> listOf(
-                        BetterLyricsProvider,
-                        LrcLibLyricsProvider,
-                        KuGouLyricsProvider,
-                        YouTubeSubtitleLyricsProvider,
-                        YouTubeLyricsProvider
-                    )
-                    PreferredLyricsProvider.KUGOU -> listOf(
-                        BetterLyricsProvider,
-                        KuGouLyricsProvider,
-                        LrcLibLyricsProvider,
-                        YouTubeSubtitleLyricsProvider,
-                        YouTubeLyricsProvider
-                    )
-                    PreferredLyricsProvider.BETTER_LYRICS -> listOf(
-                        BetterLyricsProvider,
-                        LrcLibLyricsProvider,
-                        KuGouLyricsProvider,
-                        YouTubeSubtitleLyricsProvider,
-                        YouTubeLyricsProvider
-                    )
-                }
+                lyricsProviders =
+                    if (it == PreferredLyricsProvider.LRCLIB) {
+                        listOf(
+                            LrcLibLyricsProvider,
+                            KuGouLyricsProvider,
+                            YouTubeSubtitleLyricsProvider,
+                            YouTubeLyricsProvider
+                        )
+                    } else {
+                        listOf(
+                            KuGouLyricsProvider,
+                            LrcLibLyricsProvider,
+                            YouTubeSubtitleLyricsProvider,
+                            YouTubeLyricsProvider
+                        )
+                    }
             }
 
     private val cache = LruCache<String, List<LyricsResult>>(MAX_CACHE_SIZE)

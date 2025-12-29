@@ -2,7 +2,6 @@ package com.metrolist.innertube.pages
 
 import com.metrolist.innertube.models.YTItem
 import com.metrolist.innertube.models.filterExplicit
-import com.metrolist.innertube.models.filterVideoSongs
 
 data class BrowseResult(
     val title: String?,
@@ -22,23 +21,6 @@ data class BrowseResult(
                             items =
                                 it.items
                                     .filterExplicit()
-                                    .ifEmpty { return@mapNotNull null },
-                        )
-                    },
-            )
-        } else {
-            this
-        }
-
-    fun filterVideoSongs(disableVideos: Boolean = false) =
-        if (disableVideos) {
-            copy(
-                items =
-                    items.mapNotNull {
-                        it.copy(
-                            items =
-                                it.items
-                                    .filterVideoSongs(true)
                                     .ifEmpty { return@mapNotNull null },
                         )
                     },

@@ -1,16 +1,12 @@
 package com.metrolist.lastfm
 
 import com.metrolist.lastfm.models.Authentication
-import com.metrolist.lastfm.models.LastFmError
-import com.metrolist.lastfm.models.TokenResponse
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.*
-import io.ktor.client.request.forms.FormDataContent
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
@@ -19,18 +15,13 @@ import java.security.MessageDigest
 object LastFM {
     var sessionKey: String? = null
 
-    private val json = Json {
-        isLenient = true
-        ignoreUnknownKeys = true
-    }
-
     private val client by lazy {
         HttpClient(OkHttp) {
             install(ContentNegotiation) {
-                json(json)
+                json(Json { isLenient = true; ignoreUnknownKeys = true })
             }
             defaultRequest { url("https://ws.audioscrobbler.com/2.0/") }
-            expectSuccess = false
+            expectSuccess = true
         }
     }
 
@@ -46,55 +37,24 @@ object LastFM {
         apiKey: String,
         secret: String,
         sessionKey: String? = null,
-        extra: Map<String, String> = emptyMap(),
-        format: String = "json"
+        extra: Map<String, String> = emptyMap()
     ) {
         contentType(ContentType.Application.FormUrlEncoded)
         userAgent("Metrolist (https://github.com/mostafaalagamy/Metrolist)")
-        val paramsForSig = mutableMapOf(
+        val params = mutableMapOf(
             "method" to method,
             "api_key" to apiKey
         ).apply {
             sessionKey?.let { put("sk", it) }
             putAll(extra)
         }
-        val apiSig = paramsForSig.apiSig(secret)
-        setBody(FormDataContent(Parameters.build {
-            paramsForSig.forEach { (k, v) -> append(k, v) }
-            append("api_sig", apiSig)
-            append("format", format)
-        }))
+        params["api_sig"] = params.apiSig(secret)
+        params.forEach { (k, v) -> parameter(k, v) }
     }
 
-    // OAuth methods (kept for backward compatibility)
-    suspend fun getToken() = runCatching {
-        client.post {
-            lastfmParams(
-                method = "auth.getToken",
-                apiKey = API_KEY,
-                secret = SECRET
-            )
-        }.body<TokenResponse>()
-    }
-
-    suspend fun getSession(token: String) = runCatching {
-        client.post {
-            lastfmParams(
-                method = "auth.getSession",
-                apiKey = API_KEY,
-                secret = SECRET,
-                extra = mapOf("token" to token)
-            )
-        }.body<Authentication>()
-    }
-
-    fun getAuthUrl(token: String): String {
-        return "https://www.last.fm/api/auth/?api_key=$API_KEY&token=$token"
-    }
-
-    // Mobile session authentication
+    // TODO: Change this to OAuth
     suspend fun getMobileSession(username: String, password: String) = runCatching {
-        val response = client.post {
+        client.post {
             lastfmParams(
                 method = "auth.getMobileSession",
                 apiKey = API_KEY,
@@ -102,18 +62,7 @@ object LastFM {
                 extra = mapOf("username" to username, "password" to password)
             )
             parameter("format", "json")
-        }
-
-        val responseText = response.bodyAsText()
-        if (responseText.contains("\"error\"")) {
-            val error = json.decodeFromString<LastFmError>(responseText)
-            throw LastFmException(error.error, error.message)
-        }
-        json.decodeFromString<Authentication>(responseText)
-    }
-
-    class LastFmException(val code: Int, override val message: String) : Exception(message) {
-        override fun toString(): String = "LastFmException(code=$code, message=$message)"
+        }.body<Authentication>()
     }
 
     suspend fun updateNowPlaying(
@@ -161,26 +110,6 @@ object LastFM {
         }
     }
 
-
-    suspend fun setLoveStatus(
-        artist: String, track: String, love: Boolean
-    ) = runCatching {
-        val method = if (love) "track.love" else "track.unlove"
-        client.post {
-            lastfmParams(
-                method = method,
-                apiKey = API_KEY,
-                secret = SECRET,
-                sessionKey = sessionKey!!,
-                extra = buildMap {
-                    put("artist", artist)
-                    put("track", track)
-                }
-            )
-            parameter("format", "json")
-        }
-    }
-
     // API keys passed from the app module (loaded from BuildConfig/GitHub Secrets)
     private var API_KEY = ""
     private var SECRET = ""
@@ -194,8 +123,6 @@ object LastFM {
         API_KEY = apiKey
         SECRET = secret
     }
-
-    fun isInitialized(): Boolean = API_KEY.isNotEmpty() && SECRET.isNotEmpty()
 
     const val DEFAULT_SCROBBLE_DELAY_PERCENT = 0.5f
     const val DEFAULT_SCROBBLE_MIN_SONG_DURATION = 30

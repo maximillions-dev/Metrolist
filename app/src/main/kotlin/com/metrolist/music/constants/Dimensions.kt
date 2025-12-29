@@ -1,8 +1,3 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.constants
 
 import androidx.compose.animation.core.Spring
@@ -36,17 +31,6 @@ val ThumbnailCornerRadius = 6.dp
 
 val PlayerHorizontalPadding = 32.dp
 
-val NavigationBarAnimationSpec = spring<Dp>(
-    dampingRatio = Spring.DampingRatioNoBouncy,
-    stiffness = Spring.StiffnessLow
-)
-
-val BottomSheetAnimationSpec = spring<Dp>(
-    dampingRatio = Spring.DampingRatioNoBouncy,
-    stiffness = Spring.StiffnessMediumLow
-)
-
-val BottomSheetSoftAnimationSpec = spring<Dp>(
-    dampingRatio = Spring.DampingRatioNoBouncy,
-    stiffness = Spring.StiffnessLow
-)
+val NavigationBarAnimationSpec = spring<Dp>(stiffness = Spring.StiffnessMediumLow)
+val BottomSheetAnimationSpec = spring<Dp>(stiffness = Spring.StiffnessMediumLow)
+val BottomSheetSoftAnimationSpec = spring<Dp>(stiffness = Spring.StiffnessLow)

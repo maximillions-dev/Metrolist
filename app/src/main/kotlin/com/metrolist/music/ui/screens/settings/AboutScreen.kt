@@ -1,8 +1,3 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.ui.screens.settings
 
 import androidx.compose.foundation.Image
@@ -158,7 +153,7 @@ fun AboutScreen(
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(4.dp))
 
         Text(
             text = "MO AGAMY",
@@ -171,7 +166,7 @@ fun AboutScreen(
         Row {
             IconButton(
                 onClick = {
-                    uriHandler.openUri("https://github.com/mostafaalagamy")
+                    uriHandler.openUri("https://github.com/mostafaalagamy/metrolist")
                 },
             ) {
                 Icon(
@@ -182,11 +177,11 @@ fun AboutScreen(
 
             IconButton(
                 onClick = {
-                    uriHandler.openUri("https://buymeacoffee.com/mostafaalagamy")
+                    uriHandler.openUri("https://www.instagram.com/mostafaalagamy")
                 }
             ) {
                 Icon(
-                    painter = painterResource(R.drawable.buymeacoffee),
+                    painter = painterResource(R.drawable.instagram),
                     contentDescription = null
                 )
             }
@@ -218,17 +213,6 @@ fun AboutScreen(
             color = MaterialTheme.colorScheme.secondary,
             modifier = Modifier.clickable {
                 uriHandler.openUri("https://github.com/FullerBread2032")
-            }
-        )
-
-        Spacer(Modifier.height(8.dp))
-
-        Text(
-            text = "Adriel O'Connel",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.secondary,
-            modifier = Modifier.clickable {
-                uriHandler.openUri("https://github.com/adrielGGmotion")
             }
         )
 

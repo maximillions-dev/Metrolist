@@ -54,7 +54,6 @@ object SearchSuggestionPage {
                                 )
                             },
                     duration = null,
-                    musicVideoType = renderer.musicVideoType,
                     thumbnail = renderer.thumbnail?.musicThumbnailRenderer?.getThumbnailUrl() ?: return null,
                     explicit =
                         renderer.badges?.find {

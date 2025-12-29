@@ -1,25 +1,16 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.ui.screens.settings.integrations
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -44,8 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
@@ -61,7 +50,6 @@ import com.metrolist.lastfm.LastFM
 import com.metrolist.music.constants.EnableLastFMScrobblingKey
 import com.metrolist.music.constants.LastFMSessionKey
 import com.metrolist.music.constants.LastFMUseNowPlaying
-import com.metrolist.music.constants.LastFMUseSendLikes
 import com.metrolist.music.constants.LastFMUsernameKey
 import com.metrolist.music.constants.ScrobbleMinSongDurationKey
 import com.metrolist.music.constants.ScrobbleDelayPercentKey
@@ -93,11 +81,6 @@ fun LastFMSettings(
         defaultValue = false
     )
 
-    val (useSendLikes, onUseSendLikes) = rememberPreference(
-        key = LastFMUseSendLikes,
-        defaultValue = false
-    )
-
     val (lastfmScrobbling, onlastfmScrobblingChange) = rememberPreference(
         key = EnableLastFMScrobblingKey,
         defaultValue = false
@@ -119,20 +102,13 @@ fun LastFMSettings(
     )
 
     var showLoginDialog by rememberSaveable { mutableStateOf(false) }
-    var isLoggingIn by rememberSaveable { mutableStateOf(false) }
-    var loginError by rememberSaveable { mutableStateOf<String?>(null) }
 
     if (showLoginDialog) {
         var tempUsername by rememberSaveable { mutableStateOf("") }
         var tempPassword by rememberSaveable { mutableStateOf("") }
 
         AlertDialog(
-            onDismissRequest = { 
-                if (!isLoggingIn) {
-                    showLoginDialog = false
-                    loginError = null
-                }
-            },
+            onDismissRequest = { showLoginDialog = false },
             title = { Text(stringResource(R.string.login)) },
             text = {
                 Column(
@@ -143,129 +119,41 @@ fun LastFMSettings(
                 ) {
                     OutlinedTextField(
                         value = tempUsername,
-                        onValueChange = { 
-                            tempUsername = it
-                            loginError = null
-                        },
+                        onValueChange = { tempUsername = it },
                         label = { Text(stringResource(R.string.username)) },
-                        singleLine = true,
-                        enabled = !isLoggingIn,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = tempPassword,
-                        onValueChange = { 
-                            tempPassword = it
-                            loginError = null
-                        },
+                        onValueChange = { tempPassword = it },
                         label = { Text(stringResource(R.string.password)) },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        enabled = !isLoggingIn,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    
-                    // Show error message if login failed
-                    loginError?.let { error ->
-                        Text(
-                            text = error,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
-                    }
-                    
-                    // Show loading indicator
-                    if (isLoggingIn) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.size(8.dp))
-                            Text(
-                                text = stringResource(R.string.logging_in),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                    }
                 }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        if (tempUsername.isBlank() || tempPassword.isBlank()) {
-                            loginError = "Please enter both username and password"
-                            return@TextButton
-                        }
-                        
-                        isLoggingIn = true
-                        loginError = null
-                        
                         coroutineScope.launch(Dispatchers.IO) {
-                            try {
-                                LastFM.getMobileSession(tempUsername, tempPassword)
-                                    .onSuccess { auth ->
-                                        lastfmUsername = auth.session.name
-                                        lastfmSession = auth.session.key
-                                        LastFM.sessionKey = auth.session.key
-                                        
-                                        // Switch back to main thread to update UI
-                                        coroutineScope.launch(Dispatchers.Main) {
-                                            isLoggingIn = false
-                                            showLoginDialog = false
-                                            loginError = null
-                                        }
-                                    }
-                                    .onFailure { exception ->
-                                        coroutineScope.launch(Dispatchers.Main) {
-                                            isLoggingIn = false
-                                            loginError = when (exception) {
-                                                is com.metrolist.lastfm.LastFM.LastFmException -> {
-                                                    when (exception.code) {
-                                                        4 -> "Invalid username or password"
-                                                        6 -> "Invalid parameters"
-                                                        9 -> "Invalid session key"
-                                                        10 -> "Invalid API key"
-                                                        13 -> "Invalid method signature"
-                                                        14 -> "Unauthorized token"
-                                                        15 -> "Service temporarily unavailable"
-                                                        else -> "Login failed: ${exception.message}"
-                                                    }
-                                                }
-                                                else -> "Network error. Please check your connection."
-                                            }
-                                        }
-                                        reportException(exception)
-                                    }
-                            } catch (e: Exception) {
-                                coroutineScope.launch(Dispatchers.Main) {
-                                    isLoggingIn = false
-                                    loginError = "Unexpected error occurred"
+                            LastFM.getMobileSession(tempUsername, tempPassword)
+                                .onSuccess {
+                                    lastfmUsername = it.session.name
+                                    lastfmSession = it.session.key
                                 }
-                                reportException(e)
-                            }
+                                .onFailure {
+                                    reportException(it)
+                                }
                         }
-                    },
-                    enabled = !isLoggingIn
+                        showLoginDialog = false
+                    }
                 ) {
                     Text(stringResource(R.string.login))
                 }
             },
             dismissButton = {
-                TextButton(
-                    onClick = {
-                        if (!isLoggingIn) {
-                            showLoginDialog = false
-                            loginError = null
-                        }
-                    },
-                    enabled = !isLoggingIn
-                ) {
+                TextButton(onClick = {
+                    showLoginDialog = false
+                }) {
                     Text(stringResource(R.string.cancel))
                 }
             }
@@ -332,14 +220,6 @@ fun LastFMSettings(
             checked = useNowPlaying,
             onCheckedChange = onUseNowPlayingChange,
             isEnabled = isLoggedIn && lastfmScrobbling,
-        )
-
-        SwitchPreference(
-            title = { Text(stringResource(R.string.last_fm_send_likes)) },
-            description = stringResource(R.string.last_fm_send_likes_description),
-            checked = useSendLikes,
-            onCheckedChange = onUseSendLikes,
-            isEnabled = isLoggedIn,
         )
 
         PreferenceGroupTitle(

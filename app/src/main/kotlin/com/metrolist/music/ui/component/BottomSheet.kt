@@ -1,8 +1,3 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.ui.component
 
 import androidx.activity.compose.BackHandler
@@ -214,11 +209,6 @@ class BottomSheetState(
         coroutineScope.launch {
             animatable.animateTo(animatable.lowerBound!!)
         }
-    }
-    
-    suspend fun dismissAndWait() {
-        onAnchorChanged(dismissedAnchor)
-        animatable.animateTo(animatable.lowerBound!!)
     }
 
     fun snapTo(value: Dp) {

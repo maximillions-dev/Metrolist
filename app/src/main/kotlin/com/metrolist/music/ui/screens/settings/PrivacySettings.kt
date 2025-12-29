@@ -1,8 +1,3 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.ui.screens.settings
 
 import androidx.compose.foundation.layout.Column
@@ -18,9 +13,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.foundation.layout.size
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarScrollBehavior
@@ -164,16 +157,7 @@ fun PrivacySettings(
                     trailingContent = {
                         Switch(
                             checked = pauseListenHistory,
-                            onCheckedChange = onPauseListenHistoryChange,
-                            thumbContent = {
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (pauseListenHistory) R.drawable.check else R.drawable.close
-                                    ),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(androidx.compose.material3.SwitchDefaults.IconSize)
-                                )
-                            }
+                            onCheckedChange = onPauseListenHistoryChange
                         )
                     },
                     onClick = { onPauseListenHistoryChange(!pauseListenHistory) }
@@ -197,16 +181,7 @@ fun PrivacySettings(
                     trailingContent = {
                         Switch(
                             checked = pauseSearchHistory,
-                            onCheckedChange = onPauseSearchHistoryChange,
-                            thumbContent = {
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (pauseSearchHistory) R.drawable.check else R.drawable.close
-                                    ),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(androidx.compose.material3.SwitchDefaults.IconSize)
-                                )
-                            }
+                            onCheckedChange = onPauseSearchHistoryChange
                         )
                     },
                     onClick = { onPauseSearchHistoryChange(!pauseSearchHistory) }
@@ -231,16 +206,7 @@ fun PrivacySettings(
                     trailingContent = {
                         Switch(
                             checked = disableScreenshot,
-                            onCheckedChange = onDisableScreenshotChange,
-                            thumbContent = {
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (disableScreenshot) R.drawable.check else R.drawable.close
-                                    ),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(androidx.compose.material3.SwitchDefaults.IconSize)
-                                )
-                            }
+                            onCheckedChange = onDisableScreenshotChange
                         )
                     },
                     onClick = { onDisableScreenshotChange(!disableScreenshot) }

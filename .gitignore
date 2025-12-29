@@ -97,4 +97,4 @@ core
 core.*
 *.so
 *.bin
-.env
+app/persistent-debug.keystore

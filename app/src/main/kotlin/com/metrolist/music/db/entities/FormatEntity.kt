@@ -1,8 +1,3 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.db.entities
 
 import androidx.room.Entity
@@ -18,7 +13,6 @@ data class FormatEntity(
     val sampleRate: Int?,
     val contentLength: Long,
     val loudnessDb: Double?,
-    val perceptualLoudnessDb: Double? = null,
     @Deprecated("playbackTrackingUrl should be retrieved from a fresh player request")
     val playbackUrl: String?
 )

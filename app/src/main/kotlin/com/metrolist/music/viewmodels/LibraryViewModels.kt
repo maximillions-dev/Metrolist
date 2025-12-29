@@ -1,8 +1,3 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 @file:OptIn(ExperimentalCoroutinesApi::class)
 
 package com.metrolist.music.viewmodels
@@ -101,10 +96,9 @@ constructor(
         viewModelScope.launch(Dispatchers.IO) { syncUtils.syncLikedSongs() }
     }
 
-    // COMMENTED OUT: Library sync function - disabled to save resources
-    // fun syncLibrarySongs() {
-    //     viewModelScope.launch(Dispatchers.IO) { syncUtils.syncLibrarySongs() }
-    // }
+    fun syncLibrarySongs() {
+        viewModelScope.launch(Dispatchers.IO) { syncUtils.syncLibrarySongs() }
+    }
 
     fun syncUploadedSongs() {
         viewModelScope.launch(Dispatchers.IO) { syncUtils.syncUploadedSongs() }
@@ -289,8 +283,7 @@ constructor(
     val syncAllLibrary = {
          viewModelScope.launch(Dispatchers.IO) {
              syncUtils.syncLikedSongs()
-             // COMMENTED OUT: Library sync
-             // syncUtils.syncLibrarySongs()
+             syncUtils.syncLibrarySongs()
              syncUtils.syncArtistsSubscriptions()
              syncUtils.syncLikedAlbums()
              syncUtils.syncSavedPlaylists()

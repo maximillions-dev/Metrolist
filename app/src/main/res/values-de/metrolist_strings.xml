@@ -80,7 +80,7 @@
     <string name="default_style">Standard</string>
     <string name="elements_selected">%1$d Elemente ausgewählt</string>
     <string name="min_playback_duration_title">Mindestspieldauer</string>
-    <string name="clear_downloads_dialog">Bist du sicher dass du alle Downloads löschen willst?</string>
+    <string name="clear_downloads_dialog">  Bist du sicher dass du alle Downloads löschen willst?</string>
     <string name="months">Monate</string>
     <string name="link_copied">Link in die Zwischenablage kopiert</string>
     <string name="added_to_play_next">Zu „Als Nächstes“ hinzugefügt</string>
@@ -222,5 +222,4 @@
     <string name="scrobble_min_track_duration">Lieder scrobbeln, die länger sind als</string>
     <string name="scrobble_delay_percent">Scrobble Verzögerung (%)</string>
     <string name="scrobble_delay_minutes">Scrobble Verzögerung (min)</string>
-    <string name="swipe_song_to_remove">Wische den Song zur Seite, um ihn aus der Playlist zu entfernen</string>
 </resources>

@@ -1,8 +1,3 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.ui.screens
  
  import androidx.compose.foundation.ExperimentalFoundationApi
@@ -54,7 +49,7 @@ package com.metrolist.music.ui.screens
 ) {
      val menuState = LocalMenuState.current
      val playerConnection = LocalPlayerConnection.current ?: return
-     val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
+     val isPlaying by playerConnection.isPlaying.collectAsState()
      val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
  
      val title by viewModel.title.collectAsState()

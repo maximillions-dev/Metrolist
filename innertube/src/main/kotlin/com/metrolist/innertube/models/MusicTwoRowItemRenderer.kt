@@ -49,14 +49,4 @@ data class MusicTwoRowItemRenderer(
                 ?.browseEndpointContextMusicConfig
                 ?.pageType ==
                 MUSIC_PAGE_TYPE_ARTIST
-
-    val musicVideoType: String?
-        get() =
-            thumbnailOverlay
-                ?.musicItemThumbnailOverlayRenderer
-                ?.content
-                ?.musicPlayButtonRenderer
-                ?.playNavigationEndpoint
-                ?.musicVideoType
-                ?: navigationEndpoint.musicVideoType
 }

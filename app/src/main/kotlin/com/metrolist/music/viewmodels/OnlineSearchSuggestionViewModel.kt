@@ -1,8 +1,3 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.viewmodels
 
 import android.content.Context
@@ -11,9 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.YTItem
 import com.metrolist.innertube.models.filterExplicit
-import com.metrolist.innertube.models.filterVideoSongs
 import com.metrolist.music.constants.HideExplicitKey
-import com.metrolist.music.constants.HideVideoSongsKey
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.SearchHistory
 import com.metrolist.music.utils.dataStore
@@ -53,7 +46,6 @@ constructor(
                     } else {
                         val result = YouTube.searchSuggestions(query).getOrNull()
                         val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-                        val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
 
                         database
                             .searchHistory(query)
@@ -72,7 +64,6 @@ constructor(
                                         ?.recommendedItems
                                         ?.distinctBy { it.id }
                                         ?.filterExplicit(hideExplicit)
-                                        ?.filterVideoSongs(hideVideoSongs)
                                         .orEmpty(),
                                 )
                             }

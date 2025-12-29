@@ -1,8 +1,3 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.ui.screens
 
 import androidx.compose.animation.core.tween
@@ -60,7 +55,6 @@ import com.metrolist.music.ui.screens.playlist.OnlinePlaylistScreen
 import com.metrolist.music.ui.screens.playlist.TopPlaylistScreen
 import com.metrolist.music.ui.screens.playlist.CachePlaylistScreen
 import com.metrolist.music.ui.screens.search.OnlineSearchResult
-import com.metrolist.music.ui.screens.search.SearchScreen
 import com.metrolist.music.ui.screens.settings.AboutScreen
 import com.metrolist.music.ui.screens.settings.AccountSettings
 import com.metrolist.music.ui.screens.settings.AppearanceSettings
@@ -77,32 +71,19 @@ import com.metrolist.music.ui.screens.settings.RomanizationSettings
 import com.metrolist.music.ui.screens.settings.SettingsScreen
 import com.metrolist.music.ui.screens.settings.StorageSettings
 import com.metrolist.music.ui.screens.settings.UpdaterScreen
-import com.metrolist.music.ui.screens.wrapped.WrappedScreen
 import com.metrolist.music.ui.utils.ShowMediaInfo
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 
-
-import android.app.Activity
-import androidx.compose.material3.SnackbarHostState
 
 @OptIn(ExperimentalMaterial3Api::class)
 fun NavGraphBuilder.navigationBuilder(
     navController: NavHostController,
     scrollBehavior: TopAppBarScrollBehavior,
     latestVersionName: String,
-    activity: Activity,
-    snackbarHostState: SnackbarHostState
 ) {
     composable(Screens.Home.route) {
-        HomeScreen(navController = navController, snackbarHostState = snackbarHostState)
-    }
-    composable(Screens.Search.route) {
-        val pureBlack by rememberPreference(PureBlackKey, defaultValue = false)
-        SearchScreen(
-            navController = navController,
-            pureBlack = pureBlack
-        )
+        HomeScreen(navController)
     }
     composable(
         Screens.Library.route,
@@ -309,7 +290,7 @@ fun NavGraphBuilder.navigationBuilder(
         SettingsScreen(navController, scrollBehavior, latestVersionName)
     }
     composable("settings/appearance") {
-        AppearanceSettings(navController, scrollBehavior, activity, snackbarHostState)
+        AppearanceSettings(navController, scrollBehavior)
     }
     composable("settings/content") {
         ContentSettings(navController, scrollBehavior)
@@ -349,8 +330,5 @@ fun NavGraphBuilder.navigationBuilder(
     }
     composable("login") {
         LoginScreen(navController)
-    }
-    composable("wrapped") {
-        WrappedScreen(navController)
     }
 }

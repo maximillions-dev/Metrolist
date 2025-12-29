@@ -1,8 +1,3 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
- */
-
 package com.metrolist.music.ui.component
 
 import android.annotation.SuppressLint
@@ -277,10 +272,9 @@ fun SongListItem(
         if (song.song.explicit) {
             Icon.Explicit()
         }
-        // COMMENTED OUT: Library icon
-        // if (showInLibraryIcon && song.song.inLibrary != null) {
-        //     Icon.Library()
-        // }
+        if (showInLibraryIcon && song.song.inLibrary != null) {
+            Icon.Library()
+        }
         if (showDownloadIcon) {
             val download by LocalDownloadUtil.current.getDownload(song.id)
                 .collectAsState(initial = null)
@@ -343,10 +337,9 @@ fun SongGridItem(
         if (showLikedIcon && song.song.liked) {
             Icon.Favorite()
         }
-        // COMMENTED OUT: Library icon
-        // if (showInLibraryIcon && song.song.inLibrary != null) {
-        //     Icon.Library()
-        // }
+        if (showInLibraryIcon && song.song.inLibrary != null) {
+            Icon.Library()
+        }
         if (showDownloadIcon) {
             val download by LocalDownloadUtil.current.getDownload(song.id).collectAsState(initial = null)
             Icon.Download(download?.state)
@@ -815,9 +808,9 @@ fun YouTubeListItem(
             Icon.Favorite()
         }
         if (item.explicit) Icon.Explicit()
-        // if (item is SongItem && song?.song?.inLibrary != null) {
-        //     Icon.Library()
-        // }
+        if (item is SongItem && song?.song?.inLibrary != null) {
+            Icon.Library()
+        }
         if (item is SongItem) {
             val download by LocalDownloadUtil.current.getDownload(item.id).collectAsState(null)
             Icon.Download(download?.state)
@@ -885,7 +878,7 @@ fun YouTubeGridItem(
             Icon.Favorite()
         }
         if (item.explicit) Icon.Explicit()
-        // if (item is SongItem && song?.song?.inLibrary != null) Icon.Library()
+        if (item is SongItem && song?.song?.inLibrary != null) Icon.Library()
         if (item is SongItem) {
             val download by LocalDownloadUtil.current.getDownload(item.id).collectAsState(null)
             Icon.Download(download?.state)
