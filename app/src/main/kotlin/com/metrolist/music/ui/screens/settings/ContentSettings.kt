@@ -101,10 +101,11 @@ fun ContentSettings(
     val (enableLrclib, onEnableLrclibChange) = rememberPreference(key = EnableLrcLibKey, defaultValue = true)
     val (enableBetterLyrics, onEnableBetterLyricsChange) = rememberPreference(key = EnableBetterLyricsKey, defaultValue = true)
     val (enableSimpMusic, onEnableSimpMusicChange) = rememberPreference(key = EnableSimpMusicKey, defaultValue = true)
+    val (enableAppleMusic, onEnableAppleMusicChange) = rememberPreference(key = EnableAppleMusicKey, defaultValue = true)
     val (preferredProvider, onPreferredProviderChange) =
         rememberEnumPreference(
             key = PreferredLyricsProviderKey,
-            defaultValue = PreferredLyricsProvider.BETTER_LYRICS,
+            defaultValue = PreferredLyricsProvider.APPLE_MUSIC,
         )
     val (lengthTop, onLengthTopChange) = rememberPreference(key = TopSize, defaultValue = "50")
     val (quickPicks, onQuickPicksChange) = rememberEnumPreference(key = QuickPicksKey, defaultValue = QuickPicks.QUICK_PICKS)
@@ -309,6 +310,7 @@ fun ContentSettings(
             values = PreferredLyricsProvider.values().toList(),
             valueText = {
                 when (it) {
+                    PreferredLyricsProvider.APPLE_MUSIC -> "Apple Music"
                     PreferredLyricsProvider.LRCLIB -> "LrcLib"
                     PreferredLyricsProvider.KUGOU -> "KuGou"
                     PreferredLyricsProvider.BETTER_LYRICS -> "Better Lyrics"
@@ -530,6 +532,26 @@ fun ContentSettings(
             items = listOf(
                 Material3SettingsItem(
                     icon = painterResource(R.drawable.lyrics),
+                    title = { Text("Enable Apple Music") },
+                    trailingContent = {
+                        Switch(
+                            checked = enableAppleMusic,
+                            onCheckedChange = onEnableAppleMusicChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (enableAppleMusic) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = { onEnableAppleMusicChange(!enableAppleMusic) }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.lyrics),
                     title = { Text(stringResource(R.string.enable_lrclib)) },
                     trailingContent = {
                         Switch(
@@ -616,6 +638,7 @@ fun ContentSettings(
                     description = {
                         Text(
                             when (preferredProvider) {
+                                PreferredLyricsProvider.APPLE_MUSIC -> "Apple Music"
                                 PreferredLyricsProvider.LRCLIB -> "LrcLib"
                                 PreferredLyricsProvider.KUGOU -> "KuGou"
                                 PreferredLyricsProvider.BETTER_LYRICS -> "Better Lyrics"
