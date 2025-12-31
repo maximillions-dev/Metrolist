@@ -97,6 +97,13 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import android.graphics.BlurMaskFilter
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -1085,6 +1092,182 @@ fun Lyrics(
                                 }
                             }
                             Text(text = styledText, fontSize = lyricsTextSize.sp, textAlign = alignment, lineHeight = (lyricsTextSize * lyricsLineSpacing).sp)
+                        } else if (hasWordTimings && item.words != null && lyricsAnimationStyle == LyricsAnimationStyle.APPLE_2) {
+                            val textMeasurer = rememberTextMeasurer()
+                            val lineText = item.text
+                            val speakerTag = when {
+                                lineText.startsWith("v1:") -> "v1"
+                                lineText.startsWith("v2:") -> "v2"
+                                lineText.startsWith("bg:") -> "bg"
+                                else -> null
+                            }
+                            val cleanText = speakerTag?.let { lineText.removePrefix("${it}:") } ?: lineText
+
+                            val lineAlignment = when (speakerTag) {
+                                "v1" -> Alignment.CenterEnd
+                                "v2" -> Alignment.CenterStart
+                                else -> Alignment.Center
+                            }
+                            val lineAlpha = if (speakerTag == "bg") 0.5f else 1f
+                            val lineScale = if (speakerTag == "bg") 0.9f else if (isActiveLine) 1.05f else 1f
+
+                            val focusBlurRadius by animateFloatAsState(
+                                targetValue = if (isActiveLine) 0f else 8f,
+                                animationSpec = tween(durationMillis = 600)
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .alpha(lineAlpha)
+                                    .graphicsLayer {
+                                        scaleX = lineScale
+                                        scaleY = lineScale
+                                    }
+                                    .drawWithCache {
+                                        val textStyle = TextStyle(
+                                            fontSize = lyricsTextSize.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = when(lineAlignment) {
+                                                Alignment.CenterStart -> TextAlign.Start
+                                                Alignment.CenterEnd -> TextAlign.End
+                                                else -> TextAlign.Center
+                                            }
+                                        )
+                                        val textLayoutResult = textMeasurer.measure(
+                                            text = AnnotatedString(cleanText),
+                                            style = textStyle
+                                        )
+
+                                        val wordWidths = item.words.map { word ->
+                                            textMeasurer.measure(AnnotatedString(word.text), style = textStyle).size.width.toFloat()
+                                        }
+                                        val inactivePaint = Paint().asFrameworkPaint().apply {
+                                            isAntiAlias = true
+                                            color = expressiveAccent
+                                                .copy(alpha = 0.5f)
+                                                .toArgb()
+                                            style = android.graphics.Paint.Style.FILL
+                                            textSize = lyricsTextSize.sp.toPx()
+                                            typeface = android.graphics.Typeface.DEFAULT_BOLD
+                                            if (focusBlurRadius > 0.1f) {
+                                                maskFilter = BlurMaskFilter(focusBlurRadius, BlurMaskFilter.Blur.NORMAL)
+                                            }
+                                        }
+
+                                        val activePaint = Paint().asFrameworkPaint().apply {
+                                            isAntiAlias = true
+                                            color = expressiveAccent.toArgb()
+                                            style = android.graphics.Paint.Style.FILL
+                                            textSize = lyricsTextSize.sp.toPx()
+                                            typeface = android.graphics.Typeface.DEFAULT_BOLD
+                                        }
+
+                                        val glowPaint = Paint().asFrameworkPaint().apply {
+                                            isAntiAlias = true
+                                            color = expressiveAccent.toArgb()
+                                            style = android.graphics.Paint.Style.FILL
+                                            textSize = lyricsTextSize.sp.toPx()
+                                            typeface = android.graphics.Typeface.DEFAULT_BOLD
+                                        }
+
+                                        onDrawBehind {
+                                            val textWidth = textLayoutResult.size.width
+                                            val textHeight = textLayoutResult.size.height
+                                            val canvasWidth = size.width
+
+                                            val xOffset = when (lineAlignment) {
+                                                Alignment.CenterStart -> 0f
+                                                Alignment.CenterEnd -> canvasWidth - textWidth
+                                                else -> (canvasWidth - textWidth) / 2f
+                                            }
+                                            val yOffset = (size.height - textHeight) / 2
+
+                                            if (!isActiveLine) {
+                                                drawIntoCanvas {
+                                                    it.nativeCanvas.drawText(
+                                                        cleanText,
+                                                        xOffset,
+                                                        yOffset + textLayoutResult.firstBaseline,
+                                                        inactivePaint
+                                                    )
+                                                }
+                                                return@onDrawBehind
+                                            }
+
+                                            var currentWordsWidth = 0f
+
+                                            item.words.forEachIndexed { wordIndex, word ->
+                                                val wordText = word.text
+                                                val wordWidth = wordWidths.getOrElse(wordIndex) { 0f }
+
+                                                val wordStartMs = (word.startTime * 1000).toLong()
+                                                val wordEndMs = (word.endTime * 1000).toLong()
+                                                val wordDuration = (wordEndMs - wordStartMs).coerceAtLeast(1)
+
+                                                val isWordActive = currentPlaybackPosition in wordStartMs until wordEndMs
+                                                val hasWordPassed = currentPlaybackPosition >= wordEndMs
+
+                                                val progress = if (isWordActive) {
+                                                    val x = ((currentPlaybackPosition - wordStartMs).toFloat() / wordDuration).coerceIn(0f, 1f)
+                                                    3 * x * x - 2 * x * x * x
+                                                } else if (hasWordPassed) {
+                                                    1f
+                                                } else {
+                                                    0f
+                                                }
+
+                                                // The Bloom
+                                                if (isWordActive) {
+                                                    val bloomProgress = if (progress < 0.5f) progress / 0.5f else (1f - progress) / 0.5f
+                                                    val bloomRadius = bloomProgress * 20f * this.density
+                                                    if (bloomRadius > 0.1f) {
+                                                        glowPaint.maskFilter = BlurMaskFilter(bloomRadius, BlurMaskFilter.Blur.NORMAL)
+                                                        drawIntoCanvas {
+                                                            it.nativeCanvas.drawText(
+                                                                wordText,
+                                                                xOffset + currentWordsWidth,
+                                                                yOffset + textLayoutResult.firstBaseline,
+                                                                glowPaint
+                                                            )
+                                                        }
+                                                    }
+                                                }
+
+                                                // The Wipe
+                                                drawIntoCanvas { canvas ->
+                                                    // Draw inactive part
+                                                    canvas.nativeCanvas.drawText(
+                                                        wordText,
+                                                        xOffset + currentWordsWidth,
+                                                        yOffset + textLayoutResult.firstBaseline,
+                                                        inactivePaint
+                                                    )
+
+                                                    // Draw active part
+                                                    val wipeOffset = wordWidth * (progress * 1.1f - 0.05f) // Feather effect
+                                                    canvas.save()
+                                                    canvas.clipRect(
+                                                        left = xOffset + currentWordsWidth,
+                                                        top = yOffset,
+                                                        right = xOffset + currentWordsWidth + wipeOffset,
+                                                        bottom = yOffset + textHeight
+                                                    )
+                                                    canvas.nativeCanvas.drawText(
+                                                        wordText,
+                                                        xOffset + currentWordsWidth,
+                                                        yOffset + textLayoutResult.firstBaseline,
+                                                        activePaint
+                                                    )
+                                                    canvas.restore()
+                                                }
+
+                                                currentWordsWidth += wordWidth
+                                            }
+                                        }
+                                    }
+                            )
+
                         } else if (isActiveLine && lyricsGlowEffect) {
                             // Initial animation for glow fill from left to right
                             val fillProgress = remember { Animatable(0f) }

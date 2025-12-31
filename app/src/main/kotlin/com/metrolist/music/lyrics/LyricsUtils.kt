@@ -11,6 +11,8 @@ import com.github.promeg.pinyinhelper.Pinyin
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.metrolist.music.lyrics.apple.AppleMusicLyricsParser
+import com.metrolist.music.lyrics.apple.Speaker
 
 @Suppress("RegExpRedundantEscape")
 object LyricsUtils {
@@ -275,6 +277,25 @@ object LyricsUtils {
 
     fun parseLyrics(lyrics: String): List<LyricsEntry> {
         val lines = lyrics.lines()
+
+        // Check for Apple Music enhanced LRC format
+        if (lines.any { it.contains(Regex("""<(\d{2}:\d{2}\.\d{3})>""")) && (it.contains("v1:") || it.contains("v2:") || it.contains("bg:")) }) {
+            val hierarchicalLyrics = AppleMusicLyricsParser.parse(lyrics)
+            return hierarchicalLyrics.lines.map { line ->
+                val speakerTag = when (line.speaker) {
+                    Speaker.LEAD_RIGHT -> "v1:"
+                    Speaker.LEAD_LEFT -> "v2:"
+                    Speaker.BACKGROUND -> "bg:"
+                }
+                val text = speakerTag + line.words.joinToString("") { it.text }
+                val words = line.words.map {
+                    WordTimestamp(it.text, it.startTime / 1000.0, it.endTime / 1000.0)
+                }
+                LyricsEntry(line.startTime, text, words)
+            }
+        }
+
+        // Fallback to original LRC parsing logic
         val result = mutableListOf<LyricsEntry>()
         
         var i = 0
