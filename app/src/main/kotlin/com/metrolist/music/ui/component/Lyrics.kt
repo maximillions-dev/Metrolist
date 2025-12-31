@@ -1101,20 +1101,29 @@ fun Lyrics(
                                 lineText.startsWith("bg:") -> "bg"
                                 else -> null
                             }
-                            val cleanText = speakerTag?.let { lineText.removePrefix("${it}:") } ?: lineText
+                            val cleanText = speakerTag?.let { lineText.removePrefix("${it}:").trim() } ?: lineText.trim()
 
                             val lineAlignment = when (speakerTag) {
-                                "v1" -> Alignment.CenterEnd
-                                "v2" -> Alignment.CenterStart
-                                else -> Alignment.Center
+                                "v1" -> TextAlign.End
+                                "v2" -> TextAlign.Start
+                                else -> TextAlign.Center
                             }
                             val lineAlpha = if (speakerTag == "bg") 0.5f else 1f
-                            val lineScale = if (speakerTag == "bg") 0.9f else if (isActiveLine) 1.05f else 1f
+                            val lineScale = if (speakerTag == "bg") 0.9f else 1f
 
-                            val focusBlurRadius by animateFloatAsState(
-                                targetValue = if (isActiveLine) 0f else 8f,
-                                animationSpec = tween(durationMillis = 600)
+                            val textStyle = TextStyle(
+                                fontSize = lyricsTextSize.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = lineAlignment,
+                                color = if (isActiveLine) expressiveAccent else expressiveAccent.copy(alpha = 0.3f)
                             )
+
+                            val textLayoutResult = remember(cleanText) {
+                                textMeasurer.measure(
+                                    text = AnnotatedString(cleanText),
+                                    style = textStyle
+                                )
+                            }
 
                             Box(
                                 modifier = Modifier
@@ -1124,46 +1133,19 @@ fun Lyrics(
                                         scaleX = lineScale
                                         scaleY = lineScale
                                     }
+                                    .height(with(LocalDensity.current) { textLayoutResult.size.height.toDp() })
                                     .drawWithCache {
-                                        val textStyle = TextStyle(
-                                            fontSize = lyricsTextSize.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            textAlign = when(lineAlignment) {
-                                                Alignment.CenterStart -> TextAlign.Start
-                                                Alignment.CenterEnd -> TextAlign.End
-                                                else -> TextAlign.Center
-                                            }
-                                        )
-                                        val textLayoutResult = textMeasurer.measure(
-                                            text = AnnotatedString(cleanText),
-                                            style = textStyle
-                                        )
-
-                                        val wordWidths = item.words.map { word ->
-                                            textMeasurer.measure(AnnotatedString(word.text), style = textStyle).size.width.toFloat()
-                                        }
                                         val inactivePaint = Paint().asFrameworkPaint().apply {
                                             isAntiAlias = true
                                             color = expressiveAccent
-                                                .copy(alpha = 0.5f)
+                                                .copy(alpha = 0.3f)
                                                 .toArgb()
                                             style = android.graphics.Paint.Style.FILL
                                             textSize = lyricsTextSize.sp.toPx()
                                             typeface = android.graphics.Typeface.DEFAULT_BOLD
-                                            if (focusBlurRadius > 0.1f) {
-                                                maskFilter = BlurMaskFilter(focusBlurRadius, BlurMaskFilter.Blur.NORMAL)
-                                            }
                                         }
 
                                         val activePaint = Paint().asFrameworkPaint().apply {
-                                            isAntiAlias = true
-                                            color = expressiveAccent.toArgb()
-                                            style = android.graphics.Paint.Style.FILL
-                                            textSize = lyricsTextSize.sp.toPx()
-                                            typeface = android.graphics.Typeface.DEFAULT_BOLD
-                                        }
-
-                                        val glowPaint = Paint().asFrameworkPaint().apply {
                                             isAntiAlias = true
                                             color = expressiveAccent.toArgb()
                                             style = android.graphics.Paint.Style.FILL
@@ -1177,11 +1159,11 @@ fun Lyrics(
                                             val canvasWidth = size.width
 
                                             val xOffset = when (lineAlignment) {
-                                                Alignment.CenterStart -> 0f
-                                                Alignment.CenterEnd -> canvasWidth - textWidth
+                                                TextAlign.Start -> 0f
+                                                TextAlign.End -> canvasWidth - textWidth
                                                 else -> (canvasWidth - textWidth) / 2f
                                             }
-                                            val yOffset = (size.height - textHeight) / 2
+                                            val yOffset = (size.height - textHeight) / 2f
 
                                             if (!isActiveLine) {
                                                 drawIntoCanvas {
@@ -1197,9 +1179,10 @@ fun Lyrics(
 
                                             var currentWordsWidth = 0f
 
-                                            item.words.forEachIndexed { wordIndex, word ->
+                                            item.words.forEach { word ->
                                                 val wordText = word.text
-                                                val wordWidth = wordWidths.getOrElse(wordIndex) { 0f }
+                                                val measuredWord = textMeasurer.measure(AnnotatedString(wordText), style = textStyle)
+                                                val wordWidth = measuredWord.size.width.toFloat()
 
                                                 val wordStartMs = (word.startTime * 1000).toLong()
                                                 val wordEndMs = (word.endTime * 1000).toLong()
@@ -1210,33 +1193,14 @@ fun Lyrics(
 
                                                 val progress = if (isWordActive) {
                                                     val x = ((currentPlaybackPosition - wordStartMs).toFloat() / wordDuration).coerceIn(0f, 1f)
-                                                    3 * x * x - 2 * x * x * x
+                                                    3 * x * x - 2 * x * x * x // Cubic easing
                                                 } else if (hasWordPassed) {
                                                     1f
                                                 } else {
                                                     0f
                                                 }
 
-                                                // The Bloom
-                                                if (isWordActive) {
-                                                    val bloomProgress = if (progress < 0.5f) progress / 0.5f else (1f - progress) / 0.5f
-                                                    val bloomRadius = bloomProgress * 20f * this.density
-                                                    if (bloomRadius > 0.1f) {
-                                                        glowPaint.maskFilter = BlurMaskFilter(bloomRadius, BlurMaskFilter.Blur.NORMAL)
-                                                        drawIntoCanvas {
-                                                            it.nativeCanvas.drawText(
-                                                                wordText,
-                                                                xOffset + currentWordsWidth,
-                                                                yOffset + textLayoutResult.firstBaseline,
-                                                                glowPaint
-                                                            )
-                                                        }
-                                                    }
-                                                }
-
-                                                // The Wipe
                                                 drawIntoCanvas { canvas ->
-                                                    // Draw inactive part
                                                     canvas.nativeCanvas.drawText(
                                                         wordText,
                                                         xOffset + currentWordsWidth,
@@ -1244,13 +1208,12 @@ fun Lyrics(
                                                         inactivePaint
                                                     )
 
-                                                    // Draw active part
-                                                    val wipeOffset = wordWidth * (progress * 1.1f - 0.05f) // Feather effect
+                                                    val wipeWidth = wordWidth * progress
                                                     canvas.save()
                                                     canvas.clipRect(
                                                         left = xOffset + currentWordsWidth,
                                                         top = yOffset,
-                                                        right = xOffset + currentWordsWidth + wipeOffset,
+                                                        right = xOffset + currentWordsWidth + wipeWidth,
                                                         bottom = yOffset + textHeight
                                                     )
                                                     canvas.nativeCanvas.drawText(
@@ -1261,13 +1224,11 @@ fun Lyrics(
                                                     )
                                                     canvas.restore()
                                                 }
-
                                                 currentWordsWidth += wordWidth
                                             }
                                         }
                                     }
                             )
-
                         } else if (isActiveLine && lyricsGlowEffect) {
                             // Initial animation for glow fill from left to right
                             val fillProgress = remember { Animatable(0f) }
