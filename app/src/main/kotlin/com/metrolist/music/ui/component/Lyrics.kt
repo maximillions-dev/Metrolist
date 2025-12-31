@@ -157,6 +157,8 @@ import com.metrolist.music.lyrics.LyricsUtils.isSerbian
 import com.metrolist.music.lyrics.LyricsUtils.isBulgarian
 import com.metrolist.music.lyrics.LyricsUtils.isUkrainian
 import com.metrolist.music.lyrics.LyricsUtils.isMacedonian
+import com.metrolist.music.lyrics.AppleMusicLyrics
+import com.metrolist.music.lyrics.AppleMusicLyricsParser
 import com.metrolist.music.lyrics.LyricsUtils.parseLyrics
 import com.metrolist.music.lyrics.LyricsUtils.romanizeCyrillic
 import com.metrolist.music.lyrics.LyricsUtils.romanizeJapanese
@@ -175,6 +177,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.regex.Pattern
+import kotlin.math.pow
 import kotlin.time.Duration.Companion.seconds
 
 @RequiresApi(Build.VERSION_CODES.M)
@@ -219,6 +223,18 @@ fun Lyrics(
     val lyricsEntity by playerConnection.currentLyrics.collectAsState(initial = null)
     val currentSong by playerConnection.currentSong.collectAsState(initial = null)
     val lyrics = remember(lyricsEntity) { lyricsEntity?.lyrics?.trim() }
+
+    val appleMusicLyricsFormat = remember(lyrics) {
+        lyrics?.let { Pattern.matches("^(\\[\\d{2}:\\d{2}\\.\\d{3}])?.*<\\d{2}:\\d{2}\\.\\d{3}>.*", it) } == true
+    }
+
+    val appleMusicLyrics = remember(lyrics) {
+        if (lyrics != null && appleMusicLyricsFormat) {
+            AppleMusicLyricsParser.parse(lyrics)
+        } else {
+            null
+        }
+    }
 
     val playerBackground by rememberEnumPreference(
         key = PlayerBackgroundStyleKey,
@@ -620,6 +636,55 @@ fun Lyrics(
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.alpha(0.5f)
                 )
+            }
+        } else if (appleMusicLyrics != null) {
+            LazyColumn(
+                state = lazyListState,
+                contentPadding = WindowInsets.systemBars
+                    .only(WindowInsetsSides.Top)
+                    .add(WindowInsets(top = maxHeight / 3, bottom = maxHeight / 2))
+                    .asPaddingValues(),
+                modifier = Modifier
+                    .fadingEdge(vertical = 64.dp)
+                    .nestedScroll(remember {
+                        object : NestedScrollConnection {
+                            override fun onPostScroll(
+                                consumed: Offset,
+                                available: Offset,
+                                source: NestedScrollSource
+                            ): Offset {
+                                if (source == NestedScrollSource.UserInput) {
+                                    isAutoScrollEnabled = false
+                                }
+                                if (!isSelectionModeActive) { // Only update preview time if not selecting
+                                    lastPreviewTime = System.currentTimeMillis()
+                                }
+                                return super.onPostScroll(consumed, available, source)
+                            }
+
+                            override suspend fun onPostFling(
+                                consumed: Velocity,
+                                available: Velocity
+                            ): Velocity {
+                                isAutoScrollEnabled = false
+                                if (!isSelectionModeActive) { // Only update preview time if not selecting
+                                    lastPreviewTime = System.currentTimeMillis()
+                                }
+                                return super.onPostFling(consumed, available)
+                            }
+                        }
+                    })
+            ) {
+                itemsIndexed(appleMusicLyrics.lines) { index, line ->
+                    AppleMusicLyricLine(
+                        line = line,
+                        isActive = currentLineIndex == index,
+                        currentPosition = currentPlaybackPosition,
+                        textSize = lyricsTextSize,
+                        lineSpacing = lyricsLineSpacing,
+                        textColor = expressiveAccent
+                    )
+                }
             }
         } else {
             LazyColumn(
@@ -1643,3 +1708,115 @@ private const val METROLIST_FAST_SEEK_DURATION = 600L // Less aggressive seeking
 
 // Lyrics constants
 val LyricsPreviewTime = 2.seconds
+
+@Composable
+fun AppleMusicLyricLine(
+    line: com.metrolist.music.lyrics.LyricLine,
+    isActive: Boolean,
+    currentPosition: Long,
+    textSize: Float,
+    lineSpacing: Float,
+    textColor: Color
+) {
+    val alignment = when (line.speaker) {
+        com.metrolist.music.lyrics.Speaker.V1 -> TextAlign.Right
+        com.metrolist.music.lyrics.Speaker.V2 -> TextAlign.Left
+        else -> TextAlign.Center
+    }
+
+    val alpha by animateFloatAsState(
+        targetValue = if (isActive) 1f else 0.5f,
+        animationSpec = tween(durationMillis = 400)
+    )
+
+    val scale by animateFloatAsState(
+        targetValue = if (isActive) 1.05f else 1f,
+        animationSpec = tween(durationMillis = 400)
+    )
+
+    val popScale by animateFloatAsState(
+        targetValue = if (isActive && line.words.any { currentPosition >= it.startTime && currentPosition < it.endTime }) 1.05f else 1f,
+        animationSpec = tween(durationMillis = 100)
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                this.alpha = alpha
+                this.scaleX = scale * popScale
+                this.scaleY = scale * popScale
+            }
+            .padding(horizontal = 24.dp, vertical = 8.dp),
+        horizontalAlignment = when (line.speaker) {
+            com.metrolist.music.lyrics.Speaker.V1 -> Alignment.End
+            com.metrolist.music.lyrics.Speaker.V2 -> Alignment.Start
+            else -> Alignment.CenterHorizontally
+        }
+    ) {
+        val styledText = buildAnnotatedString {
+            line.words.forEachIndexed { wordIndex, word ->
+                val hasWordPassed = currentPosition >= word.endTime
+                val isWordActive = currentPosition >= word.startTime && currentPosition < word.endTime
+
+                val progress = if (isWordActive) {
+                    val duration = (word.endTime - word.startTime).toFloat()
+                    if (duration > 0) {
+                        ((currentPosition - word.startTime).toFloat() / duration).coerceIn(0f, 1f)
+                    } else {
+                        1f
+                    }
+                } else if (hasWordPassed) {
+                    1f
+                } else {
+                    0f
+                }
+
+                val easedProgress = 3 * progress.pow(2) - 2 * progress.pow(3)
+
+                val backgroundBrush = Brush.horizontalGradient(
+                    0f to textColor,
+                    easedProgress to textColor,
+                    easedProgress to Color.Transparent,
+                    1f to Color.Transparent
+                )
+
+                val glowIntensity = if (isWordActive) {
+                    val wordDuration = word.endTime - word.startTime
+                    if (wordDuration > 500) {
+                        (easedProgress * 1.2f).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+                } else {
+                    0f
+                }
+
+                withStyle(
+                    style = SpanStyle(
+                        brush = backgroundBrush,
+                        fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Bold,
+                        shadow = if (glowIntensity > 0) Shadow(
+                            color = textColor.copy(alpha = 0.5f * glowIntensity),
+                            offset = Offset.Zero,
+                            blurRadius = 12f * glowIntensity
+                        ) else null
+                    )
+                ) {
+                    append(word.text)
+                }
+                if (wordIndex < line.words.size - 1) {
+                    append(" ")
+                }
+            }
+        }
+
+        Text(
+            text = styledText,
+            fontSize = textSize.sp,
+            textAlign = alignment,
+            lineHeight = (textSize * lineSpacing).sp,
+            color = textColor.copy(alpha = 0.5f)
+        )
+    }
+}
