@@ -26,6 +26,13 @@ object AppleMusicLyricsProvider : LyricsProvider {
         duration: Int,
     ): Result<String> {
         val userAgent = "${BuildConfig.APPLICATION_ID}/${BuildConfig.VERSION_NAME}"
-        return AppleMusic.fetchLyrics(title, artist, userAgent)
+        val rawLyricsResult = AppleMusic.fetchLyrics(title, artist, userAgent)
+
+        return rawLyricsResult.map { rawLyrics ->
+            val parsedLyrics = AppleMusicLyricsParser.parse(rawLyrics)
+            // For now, we'll just convert the parsed object back to a string
+            // to confirm the parser works without breaking the LyricsProvider interface.
+            parsedLyrics.toString()
+        }
     }
 }

@@ -23,11 +23,12 @@ object AppleMusicLyricsParser {
 
             val hasTimestamp = lineMatcher.group(1) != null
             val lineTime = if (hasTimestamp) {
-                (lineMatcher.group(1)?.toLong() ?: 0) * 60000 + (lineMatcher.group(2)?.toLong() ?: 0) * 1000 + (lineMatcher.group(3)?.toLong() ?: 0)
+                val time = (lineMatcher.group(1)?.toLong() ?: 0) * 60000 + (lineMatcher.group(2)?.toLong() ?: 0) * 1000 + (lineMatcher.group(3)?.toLong() ?: 0)
+                lastLineTime = time
+                time
             } else {
                 lastLineTime
             }
-            lastLineTime = lineTime
 
             val content = lineMatcher.group(4)!!
             val (speaker, lyricsContent) = parseSpeaker(content)
@@ -103,12 +104,22 @@ object AppleMusicLyricsParser {
             val nextLine = allLines[i]
 
             val lineMatcher = LINE_REGEX.matcher(nextLine)
-            if (lineMatcher.matches() && lineMatcher.group(1) != null) {
+            if (!lineMatcher.matches()) continue
+
+            // A line is considered "empty" for this purpose if it has no content after the timestamp.
+            val content = lineMatcher.group(4) ?: ""
+            if (content.isBlank()) {
+                // It's an empty line like [00:18.000], skip to find the next real line
+                continue
+            }
+
+            // Now check for timestamps in this non-empty line
+            if (lineMatcher.group(1) != null) { // Line-level timestamp
                 return (lineMatcher.group(1)?.toLong() ?: 0) * 60000 + (lineMatcher.group(2)?.toLong() ?: 0) * 1000 + (lineMatcher.group(3)?.toLong() ?: 0)
             }
 
-            val wordMatcher = WORD_REGEX.matcher(nextLine)
-            if (wordMatcher.find()) {
+            val wordMatcher = WORD_REGEX.matcher(content)
+            if (wordMatcher.find()) { // Word-level timestamp
                 return (wordMatcher.group(1)?.toLong() ?: 0) * 60000 + (wordMatcher.group(2)?.toLong() ?: 0) * 1000 + (wordMatcher.group(3)?.toLong() ?: 0)
             }
         }
