@@ -9,6 +9,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.BlurMaskFilter
 import android.os.Build
 import android.view.WindowManager
 import android.widget.Toast
@@ -92,6 +93,10 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
@@ -1718,105 +1723,151 @@ fun AppleMusicLyricLine(
     lineSpacing: Float,
     textColor: Color
 ) {
-    val alignment = when (line.speaker) {
-        com.metrolist.music.lyrics.Speaker.V1 -> TextAlign.Right
-        com.metrolist.music.lyrics.Speaker.V2 -> TextAlign.Left
-        else -> TextAlign.Center
-    }
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
 
     val alpha by animateFloatAsState(
         targetValue = if (isActive) 1f else 0.5f,
-        animationSpec = tween(durationMillis = 400)
+        animationSpec = tween(durationMillis = 400),
+        label = "alpha"
     )
 
     val scale by animateFloatAsState(
         targetValue = if (isActive) 1.05f else 1f,
-        animationSpec = tween(durationMillis = 400)
+        animationSpec = tween(durationMillis = 400),
+        label = "scale"
     )
 
-    val popScale by animateFloatAsState(
-        targetValue = if (isActive && line.words.any { currentPosition >= it.startTime && currentPosition < it.endTime }) 1.05f else 1f,
-        animationSpec = tween(durationMillis = 100)
-    )
+    val horizontalAlignment = when (line.speaker) {
+        com.metrolist.music.lyrics.Speaker.V1 -> Alignment.End
+        com.metrolist.music.lyrics.Speaker.V2 -> Alignment.Start
+        else -> Alignment.CenterHorizontally
+    }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .graphicsLayer {
-                this.alpha = alpha
-                this.scaleX = scale * popScale
-                this.scaleY = scale * popScale
-            }
-            .padding(horizontal = 24.dp, vertical = 8.dp),
-        horizontalAlignment = when (line.speaker) {
-            com.metrolist.music.lyrics.Speaker.V1 -> Alignment.End
-            com.metrolist.music.lyrics.Speaker.V2 -> Alignment.Start
-            else -> Alignment.CenterHorizontally
-        }
-    ) {
-        val styledText = buildAnnotatedString {
-            line.words.forEachIndexed { wordIndex, word ->
-                val hasWordPassed = currentPosition >= word.endTime
-                val isWordActive = currentPosition >= word.startTime && currentPosition < word.endTime
+    val fullText = remember(line.words) {
+        line.words.joinToString(" ") { it.text }
+    }
 
-                val progress = if (isWordActive) {
-                    val duration = (word.endTime - word.startTime).toFloat()
-                    if (duration > 0) {
-                        ((currentPosition - word.startTime).toFloat() / duration).coerceIn(0f, 1f)
-                    } else {
-                        1f
-                    }
-                } else if (hasWordPassed) {
-                    1f
-                } else {
-                    0f
-                }
-
-                val easedProgress = 3 * progress.pow(2) - 2 * progress.pow(3)
-
-                val backgroundBrush = Brush.horizontalGradient(
-                    0f to textColor,
-                    easedProgress to textColor,
-                    easedProgress to Color.Transparent,
-                    1f to Color.Transparent
-                )
-
-                val glowIntensity = if (isWordActive) {
-                    val wordDuration = word.endTime - word.startTime
-                    if (wordDuration > 500) {
-                        (easedProgress * 1.2f).coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    }
-                } else {
-                    0f
-                }
-
-                withStyle(
-                    style = SpanStyle(
-                        brush = backgroundBrush,
-                        fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Bold,
-                        shadow = if (glowIntensity > 0) Shadow(
-                            color = textColor.copy(alpha = 0.5f * glowIntensity),
-                            offset = Offset.Zero,
-                            blurRadius = 12f * glowIntensity
-                        ) else null
-                    )
-                ) {
-                    append(word.text)
-                }
-                if (wordIndex < line.words.size - 1) {
-                    append(" ")
-                }
-            }
-        }
-
-        Text(
-            text = styledText,
+    val textStyle = remember(textSize, lineSpacing, isActive) {
+        TextStyle(
             fontSize = textSize.sp,
-            textAlign = alignment,
+            fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Bold,
             lineHeight = (textSize * lineSpacing).sp,
-            color = textColor.copy(alpha = 0.5f)
+            textAlign = when (horizontalAlignment) {
+                Alignment.Start -> TextAlign.Start
+                Alignment.End -> TextAlign.End
+                else -> TextAlign.Center
+            }
         )
     }
+
+    val textLayoutResult = remember(fullText, textStyle) {
+        textMeasurer.measure(
+            text = AnnotatedString(fullText),
+            style = textStyle
+        )
+    }
+
+    val wordWidths = remember(line.words, textStyle) {
+        line.words.map { word ->
+            textMeasurer.measure(AnnotatedString(word.text + " "), style = textStyle).size.width.toFloat()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 8.dp)
+            .graphicsLayer {
+                this.alpha = alpha
+                this.scaleX = scale
+                this.scaleY = scale
+            }
+            .drawWithCache {
+                val inactivePaint = Paint().asFrameworkPaint().apply {
+                    isAntiAlias = true
+                    color = textColor.copy(alpha = 0.5f).toArgb()
+                }
+
+                val activePaint = Paint().asFrameworkPaint().apply {
+                    isAntiAlias = true
+                    color = Color.White.toArgb()
+                }
+
+                val glowPaint = Paint().asFrameworkPaint().apply {
+                    isAntiAlias = true
+                    color = Color.White.toArgb()
+                    maskFilter = BlurMaskFilter(12f * density.density, BlurMaskFilter.Blur.NORMAL)
+                }
+
+                onDrawBehind {
+                    val totalWidth = textLayoutResult.size.width.toFloat()
+                    val startOffset = when (horizontalAlignment) {
+                        Alignment.End -> size.width - totalWidth
+                        Alignment.CenterHorizontally -> (size.width - totalWidth) / 2
+                        else -> 0f
+                    }
+
+                    val fontSizePx = with(density) { textSize.sp.toPx() }
+                    val verticalOffset = textLayoutResult.firstBaseline
+
+                    // 1. Draw the inactive text
+                    drawIntoCanvas { canvas ->
+                        canvas.nativeCanvas.drawText(
+                            fullText,
+                            startOffset,
+                            verticalOffset,
+                            inactivePaint.apply { this.textSize = fontSizePx }
+                        )
+                    }
+
+                    // 2. Calculate the total width of the active part
+                    var activeWidth = 0f
+                    var isGlowNeeded = false
+                    line.words.forEachIndexed { index, word ->
+                        val isWordActive = currentPosition in word.startTime..word.endTime
+                        val hasWordPassed = currentPosition > word.endTime
+                        val wordDuration = word.endTime - word.startTime
+
+                        if (hasWordPassed) {
+                            activeWidth += wordWidths[index]
+                        } else if (isWordActive) {
+                            if (wordDuration > 500) {
+                                isGlowNeeded = true
+                            }
+                            if (wordDuration > 0) {
+                                val progress = ((currentPosition - word.startTime).toFloat() / wordDuration).coerceIn(0f, 1f)
+                                activeWidth += wordWidths[index] * progress
+                            }
+                        }
+                    }
+
+                    // 3. Perform a single clip and draw the active parts
+                    if (activeWidth > 0) {
+                        drawIntoCanvas { canvas ->
+                            canvas.save()
+                            canvas.clipRect(startOffset, 0f, startOffset + activeWidth, size.height)
+
+                            if (isGlowNeeded) {
+                                canvas.nativeCanvas.drawText(
+                                    fullText,
+                                    startOffset,
+                                    verticalOffset,
+                                    glowPaint.apply { this.textSize = fontSizePx }
+                                )
+                            }
+
+                            canvas.nativeCanvas.drawText(
+                                fullText,
+                                startOffset,
+                                verticalOffset,
+                                activePaint.apply { this.textSize = fontSizePx }
+                            )
+                            canvas.restore()
+                        }
+                    }
+                }
+            }
+            .height(with(LocalDensity.current) { textLayoutResult.size.height.toDp() })
+    )
 }
