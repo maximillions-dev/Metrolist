@@ -226,6 +226,27 @@ class InnerTube {
         }
     }
 
+    suspend fun playbackProgress(
+        url: String,
+        playlistId: String?,
+        client: YouTubeClient = YouTubeClient.WEB_REMIX,
+        playbackTime: Int,
+        cpn: String
+    ) = httpClient.get(url) {
+        ytClient(client, true)
+        parameter("ver", "2")
+        parameter("c", client.clientName)
+        parameter("st", playbackTime)
+        parameter("et", playbackTime)
+        parameter("cpn", cpn)
+
+
+        if (playlistId != null) {
+            parameter("list", playlistId)
+            parameter("referrer", "https://music.youtube.com/playlist?list=$playlistId")
+        }
+    }
+
     suspend fun browse(
         client: YouTubeClient,
         browseId: String? = null,

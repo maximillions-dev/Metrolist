@@ -14,7 +14,7 @@ import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.withContext
 
 class YouTubeQueue(
-    private var endpoint: WatchEndpoint,
+    var endpoint: WatchEndpoint,
     override val preloadItem: MediaMetadata? = null,
 ) : Queue {
     private var continuation: String? = null

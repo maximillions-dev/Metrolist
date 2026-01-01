@@ -102,6 +102,7 @@ import com.metrolist.music.constants.LastFMUseNowPlaying
 import com.metrolist.music.constants.ScrobbleDelayPercentKey
 import com.metrolist.music.constants.ScrobbleMinSongDurationKey
 import com.metrolist.music.constants.ScrobbleDelaySecondsKey
+import com.metrolist.music.constants.YouTubeHistoryPingIntervalKey
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleLike
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleRepeatMode
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleShuffle
@@ -250,6 +251,8 @@ class MusicService :
     private var discordRpc: DiscordRPC? = null
     private var lastPlaybackSpeed = 1.0f
     private var discordUpdateJob: kotlinx.coroutines.Job? = null
+    private var historyPingJob: kotlinx.coroutines.Job? = null
+    private var currentCpn: String? = null
 
     private var scrobbleManager: ScrobbleManager? = null
 
@@ -1250,6 +1253,7 @@ class MusicService :
         mediaItem: MediaItem?,
         reason: Int,
     ) {
+        currentCpn = null
         lastPlaybackSpeed = -1.0f // force update song
 
         setupLoudnessEnhancer()
@@ -1382,6 +1386,40 @@ class MusicService :
         // Scrobbling
         if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED)) {
             scrobbleManager?.onPlayerStateChanged(player.isPlaying, player.currentMetadata, duration = player.duration)
+        }
+
+        // History Ping
+        if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION)) {
+            historyPingJob?.cancel()
+            if (player.isPlaying) {
+                player.currentMediaItem?.mediaId?.let { mediaId ->
+                    historyPingJob = scope.launch {
+                        val interval = dataStore.get(YouTubeHistoryPingIntervalKey, 10f)
+                        if (interval > 0f) {
+                            val playbackUrl =
+                                YTPlayerUtils.playerResponseForMetadata(mediaId, null)
+                                    .getOrNull()?.playbackTracking?.videostatsPlaybackUrl?.baseUrl
+                            val playlistId = (currentQueue as? YouTubeQueue)?.endpoint?.playlistId
+                            while (isActive) {
+                                delay((interval * 1000).toLong())
+                                playbackUrl?.let {
+                                    currentCpn?.let { cpn ->
+                                        YouTube.playbackProgress(
+                                            playlistId,
+                                            it,
+                                            player.currentPosition.toInt() / 1000,
+                                            cpn
+                                        )
+                                            .onFailure {
+                                                reportException(it)
+                                            }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
     }
@@ -1682,10 +1720,14 @@ class MusicService :
             }
 
             CoroutineScope(Dispatchers.IO).launch {
+                val playlistId = (currentQueue as? YouTubeQueue)?.endpoint?.playlistId
                 val playbackUrl = YTPlayerUtils.playerResponseForMetadata(mediaItem.mediaId, null)
                     .getOrNull()?.playbackTracking?.videostatsPlaybackUrl?.baseUrl
                 playbackUrl?.let {
-                    YouTube.registerPlayback(null, playbackUrl)
+                    YouTube.registerPlayback(playlistId, it)
+                        .onSuccess { cpn ->
+                            currentCpn = cpn
+                        }
                         .onFailure {
                             reportException(it)
                         }

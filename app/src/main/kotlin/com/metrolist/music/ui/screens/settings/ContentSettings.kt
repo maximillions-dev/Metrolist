@@ -108,6 +108,8 @@ fun ContentSettings(
     val (lengthTop, onLengthTopChange) = rememberPreference(key = TopSize, defaultValue = "50")
     val (quickPicks, onQuickPicksChange) = rememberEnumPreference(key = QuickPicksKey, defaultValue = QuickPicks.QUICK_PICKS)
     val (showWrappedCard, onShowWrappedCardChange) = rememberPreference(key = ShowWrappedCardKey, defaultValue = false)
+    val (youtubeHistoryPingInterval, onYoutubeHistoryPingIntervalChange) =
+        rememberPreference(key = YouTubeHistoryPingIntervalKey, defaultValue = 10f)
 
     var showProxyConfigurationDialog by rememberSaveable {
         mutableStateOf(false)
@@ -660,6 +662,31 @@ fun ContentSettings(
                         )
                     },
                     onClick = { showQuickPicksDialog = true }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.history),
+                    title = { Text(stringResource(R.string.youtube_history_ping_interval)) },
+                    description = {
+                        Text(stringResource(R.string.youtube_history_ping_interval_summary))
+                    },
+                    trailingContent = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(0.5f)
+                        ) {
+                            Slider(
+                                value = youtubeHistoryPingInterval,
+                                onValueChange = onYoutubeHistoryPingIntervalChange,
+                                valueRange = 0f..60f,
+                                steps = 11,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = if (youtubeHistoryPingInterval == 0f) "Disabled" else "${youtubeHistoryPingInterval.toInt()}s",
+                            )
+                        }
+                    }
                 )
             )
         )

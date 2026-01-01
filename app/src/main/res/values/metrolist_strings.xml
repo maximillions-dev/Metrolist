@@ -378,4 +378,6 @@
     <string name="copied_artist">Copied Artist</string>
     <string name="error_playing">Error playing</string>
     <string name="failed_to_parse_proxy">Failed to parse proxy url.</string>
+    <string name="youtube_history_ping_interval">YouTube history ping interval</string>
+    <string name="youtube_history_ping_interval_summary">How often to ping YouTube to say you\'re still listening. Lower values may improve recommendations. Set to 0 to disable.</string>
 </resources>

@@ -103,6 +103,8 @@ val ScrobbleDelayPercentKey = floatPreferencesKey("scrobbleDelayPercent")
 val ScrobbleMinSongDurationKey = intPreferencesKey("scrobbleMinSongDuration")
 val ScrobbleDelaySecondsKey = intPreferencesKey("scrobbleDelaySeconds")
 
+val YouTubeHistoryPingIntervalKey = floatPreferencesKey("youtube_history_ping_interval")
+
 val ChipSortTypeKey = stringPreferencesKey("chipSortType")
 val SongSortTypeKey = stringPreferencesKey("songSortType")
 val SongSortDescendingKey = booleanPreferencesKey("songSortDescending")
