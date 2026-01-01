@@ -1,5 +1,5 @@
 /**
- * Metrolist Project (C) 2026
+ * Metrolist Project (C) 2024
  * Licensed under GPL-3.0 | See git history for contributors
  */
 package com.metrolist.music.ui.component
@@ -177,6 +177,7 @@ import com.metrolist.music.ui.utils.fadingEdge
 import com.metrolist.music.utils.ComposeToImage
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -205,13 +206,16 @@ fun HierarchicalLyricsLine(
     val lyricsLineSpacing by rememberPreference(LyricsLineSpacingKey, 1.3f)
 
     val textStyle = TextStyle(
-        fontSize = lyricsTextSize.sp,
+        fontSize = if (line.speaker is SpeakerRole.BG) (lyricsTextSize * 0.8f).sp else lyricsTextSize.sp,
         fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
         textAlign = textAlign,
         lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
     )
 
-    Box(
+    Text(
+        text = line.text,
+        style = textStyle,
+        color = Color.Transparent, // Prevent redundant draw, drawing is handled in drawWithCache
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 8.dp)
@@ -219,50 +223,8 @@ fun HierarchicalLyricsLine(
                 val measuredText = textMeasurer.measure(
                     text = AnnotatedString(line.text),
                     style = textStyle,
+                    constraints = androidx.compose.ui.unit.Constraints(maxWidth = size.width.toInt())
                 )
-                val totalWidth: Float = measuredText.size.width.toFloat()
-
-                var preTextWidth = 0f
-                var activeTextWidth = 0f
-
-                if (isActive) {
-                    val activeWordIndex = line.words.indexOfLast {
-                        (it.startTime * 1000) <= currentPosition
-                    }
-
-                    if (activeWordIndex != -1) {
-                        val activeWord = line.words[activeWordIndex]
-
-                        // Calculate width of text before the active word
-                        val preText = line.words.subList(0, activeWordIndex)
-                            .joinToString(separator = "") { it.text }
-                        preTextWidth = textMeasurer.measure(AnnotatedString(preText), style = textStyle).size.width.toFloat()
-
-
-                        // Calculate the progress within the active word
-                        val wordStartTime = (activeWord.startTime * 1000f)
-                        val wordEndTime = (activeWord.endTime * 1000f)
-                        val wordDuration = wordEndTime - wordStartTime
-                        val wordProgress = if (wordDuration > 0) {
-                            ((currentPosition - wordStartTime) / wordDuration).coerceIn(0f, 1f)
-                        } else {
-                            1f
-                        }
-
-
-                        // Calculate width of the active word text
-                        val activeWordTextWidth = textMeasurer.measure(AnnotatedString(activeWord.text), style = textStyle).size.width.toFloat()
-                        activeTextWidth = activeWordTextWidth * wordProgress
-                    }
-                } else {
-                    val lineEndTime = (line.endTime * 1000f)
-                    if (currentPosition > lineEndTime) {
-                        // If the line has already passed, fill it completely
-                        preTextWidth = totalWidth
-                    }
-                }
-
-                val fillWidth = preTextWidth + activeTextWidth
 
                 onDrawBehind {
                     // Draw the inactive text
@@ -270,23 +232,78 @@ fun HierarchicalLyricsLine(
                         textLayoutResult = measuredText,
                         color = inactiveColor,
                     )
-                    // Draw the active text on top, clipped to the fill width
-                    clipRect(right = fillWidth) {
-                        drawText(
-                            textLayoutResult = measuredText,
-                            color = activeColor
-                        )
+
+                    val activeWordIndex = if (isActive) {
+                        line.words.indexOfLast { (it.startTime * 1000) <= currentPosition }
+                    } else {
+                        // If line is not active, check if it has already passed
+                        val lineEndTime = (line.endTime * 1000f)
+                        if (currentPosition > lineEndTime) line.words.lastIndex else -1
+                    }
+
+                    if (activeWordIndex != -1) {
+                        val activeWord = line.words[activeWordIndex]
+
+                        // Get character offset of the active word
+                        val activeWordStartOffset = line.words.take(activeWordIndex)
+                            .joinToString("") { it.text }.length
+
+                        val wordProgress = if (isActive) {
+                            val wordStartTime = (activeWord.startTime * 1000f)
+                            val wordEndTime = (activeWord.endTime * 1000f)
+                            val wordDuration = wordEndTime - wordStartTime
+                            if (wordDuration > 0) {
+                                ((currentPosition - wordStartTime) / wordDuration).coerceIn(0f, 1f)
+                            } else 1f
+                        } else 1f // Already passed lines are fully filled
+
+                        val activeWordCharOffset = (activeWord.text.length * wordProgress).toInt()
+                        val totalCharOffset = (activeWordStartOffset + activeWordCharOffset)
+                            .coerceAtMost(measuredText.layoutInput.text.length)
+
+
+                        if (totalCharOffset > 0) {
+                            val pathForClipping = androidx.compose.ui.graphics.Path()
+                            val activeLineIndex = measuredText.getLineForOffset(totalCharOffset)
+
+                            // Add rects for all the lines before the current one
+                            for (i in 0 until activeLineIndex) {
+                                pathForClipping.addRect(
+                                    androidx.compose.ui.geometry.Rect(
+                                        left = measuredText.getLineLeft(i),
+                                        top = measuredText.getLineTop(i),
+                                        right = measuredText.getLineRight(i),
+                                        bottom = measuredText.getLineBottom(i)
+                                    )
+                                )
+                            }
+
+                            // Add rect for the current line
+                            val horizontalClip = measuredText.getHorizontalPosition(
+                                offset = totalCharOffset,
+                                usePrimaryDirection = true
+                            )
+                            pathForClipping.addRect(
+                                androidx.compose.ui.geometry.Rect(
+                                    left = measuredText.getLineLeft(activeLineIndex),
+                                    top = measuredText.getLineTop(activeLineIndex),
+                                    right = horizontalClip,
+                                    bottom = measuredText.getLineBottom(activeLineIndex)
+                                )
+                            )
+
+                            drawContext.canvas.save()
+                            drawContext.canvas.clipPath(pathForClipping)
+                            drawText(
+                                textLayoutResult = measuredText,
+                                color = activeColor
+                            )
+                            drawContext.canvas.restore()
+                        }
                     }
                 }
             }
-    ) {
-        // This is a placeholder for layout purposes. The actual drawing is done in drawWithCache.
-        Text(
-            text = line.text,
-            style = textStyle,
-            modifier = Modifier.alpha(0f)
-        )
-    }
+    )
 }
 
 
@@ -370,74 +387,27 @@ fun Lyrics(
                     LyricsContent.Standard(
                         parsedLines.map { entry ->
                             val newEntry = LyricsEntry(entry.time, entry.text)
-                            if (romanizeJapaneseLyrics && isJapanese(entry.text) && !isChinese(
-                                    entry.text
-                                )
-                            ) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeJapanese(entry.text)
-                                }
-                            }
-                            if (romanizeKoreanLyrics && isKorean(entry.text)) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeKorean(entry.text)
-                                }
-                            }
-                            if (romanizeRussianLyrics && (if (romanizeCyrillicByLine) isRussian(
-                                    entry.text
-                                ) else isRussianLyrics)
-                            ) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeCyrillic(entry.text)
-                                }
-                            } else if (romanizeUkrainianLyrics && (if (romanizeCyrillicByLine) isUkrainian(
-                                    entry.text
-                                ) else isUkrainianLyrics)
-                            ) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeCyrillic(entry.text)
-                                }
-                            } else if (romanizeSerbianLyrics && (if (romanizeCyrillicByLine) isSerbian(
-                                    entry.text
-                                ) else isSerbianLyrics)
-                            ) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeCyrillic(entry.text)
-                                }
-                            } else if (romanizeBulgarianLyrics && (if (romanizeCyrillicByLine) isBulgarian(
-                                    entry.text
-                                ) else isBulgarianLyrics)
-                            ) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeCyrillic(entry.text)
-                                }
-                            } else if (romanizeBelarusianLyrics && (if (romanizeCyrillicByLine) isBelarusian(
-                                    entry.text
-                                ) else isBelarusianLyrics)
-                            ) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeCyrillic(entry.text)
-                                }
-                            } else if (romanizeKyrgyzLyrics && (if (romanizeCyrillicByLine) isKyrgyz(
-                                    entry.text
-                                ) else isKyrgyzLyrics)
-                            ) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeCyrillic(entry.text)
-                                }
-                            } else if (romanizeMacedonianLyrics && (if (romanizeCyrillicByLine) isMacedonian(
-                                    entry.text
-                                ) else isMacedonianLyrics)
-                            ) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeCyrillic(entry.text)
-                                }
-                            }
-                            if (romanizeChineseLyrics && isChinese(entry.text)) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeChinese(entry.text)
-                                }
-                            }
+                            scope.launchRomanization(
+                                entry = newEntry,
+                                romanizeJapaneseLyrics = romanizeJapaneseLyrics,
+                                romanizeKoreanLyrics = romanizeKoreanLyrics,
+                                romanizeRussianLyrics = romanizeRussianLyrics,
+                                isRussianLyrics = isRussianLyrics,
+                                romanizeUkrainianLyrics = romanizeUkrainianLyrics,
+                                isUkrainianLyrics = isUkrainianLyrics,
+                                romanizeSerbianLyrics = romanizeSerbianLyrics,
+                                isSerbianLyrics = isSerbianLyrics,
+                                romanizeBulgarianLyrics = romanizeBulgarianLyrics,
+                                isBulgarianLyrics = isBulgarianLyrics,
+                                romanizeBelarusianLyrics = romanizeBelarusianLyrics,
+                                isBelarusianLyrics = isBelarusianLyrics,
+                                romanizeKyrgyzLyrics = romanizeKyrgyzLyrics,
+                                isKyrgyzLyrics = isKyrgyzLyrics,
+                                romanizeMacedonianLyrics = romanizeMacedonianLyrics,
+                                isMacedonianLyrics = isMacedonianLyrics,
+                                romanizeCyrillicByLine = romanizeCyrillicByLine,
+                                romanizeChineseLyrics = romanizeChineseLyrics
+                            )
                             newEntry
                         }
                             .let {
@@ -459,71 +429,28 @@ fun Lyrics(
                     LyricsContent.Standard(
                         lyrics.lines().mapIndexed { index, line ->
                             val newEntry = LyricsEntry(index * 100L, line)
-                            if (romanizeJapaneseLyrics && isJapanese(line) && !isChinese(line)) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeJapanese(line)
-                                }
-                            }
-                            if (romanizeKoreanLyrics && isKorean(line)) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeKorean(line)
-                                }
-                            }
-                            if (romanizeRussianLyrics && (if (romanizeCyrillicByLine) isRussian(
-                                    line
-                                ) else isRussianLyrics)
-                            ) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeCyrillic(line)
-                                }
-                            } else if (romanizeUkrainianLyrics && (if (romanizeCyrillicByLine) isUkrainian(
-                                    line
-                                ) else isUkrainianLyrics)
-                            ) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeCyrillic(line)
-                                }
-                            } else if (romanizeSerbianLyrics && (if (romanizeCyrillicByLine) isSerbian(
-                                    line
-                                ) else isSerbianLyrics)
-                            ) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeCyrillic(line)
-                                }
-                            } else if (romanizeBulgarianLyrics && (if (romanizeCyrillicByLine) isBulgarian(
-                                    line
-                                ) else isBulgarianLyrics)
-                            ) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeCyrillic(line)
-                                }
-                            } else if (romanizeBelarusianLyrics && (if (romanizeCyrillicByLine) isBelarusian(
-                                    line
-                                ) else isBelarusianLyrics)
-                            ) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeCyrillic(line)
-                                }
-                            } else if (romanizeKyrgyzLyrics && (if (romanizeCyrillicByLine) isKyrgyz(
-                                    line
-                                ) else isKyrgyzLyrics)
-                            ) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeCyrillic(line)
-                                }
-                            } else if (romanizeMacedonianLyrics && (if (romanizeCyrillicByLine) isMacedonian(
-                                    line
-                                ) else isMacedonianLyrics)
-                            ) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeCyrillic(line)
-                                }
-                            }
-                            if (romanizeChineseLyrics && isChinese(line)) {
-                                scope.launch {
-                                    newEntry.romanizedTextFlow.value = romanizeChinese(line)
-                                }
-                            }
+                            scope.launchRomanization(
+                                entry = newEntry,
+                                text = line,
+                                romanizeJapaneseLyrics = romanizeJapaneseLyrics,
+                                romanizeKoreanLyrics = romanizeKoreanLyrics,
+                                romanizeRussianLyrics = romanizeRussianLyrics,
+                                isRussianLyrics = isRussianLyrics,
+                                romanizeUkrainianLyrics = romanizeUkrainianLyrics,
+                                isUkrainianLyrics = isUkrainianLyrics,
+                                romanizeSerbianLyrics = romanizeSerbianLyrics,
+                                isSerbianLyrics = isSerbianLyrics,
+                                romanizeBulgarianLyrics = romanizeBulgarianLyrics,
+                                isBulgarianLyrics = isBulgarianLyrics,
+                                romanizeBelarusianLyrics = romanizeBelarusianLyrics,
+                                isBelarusianLyrics = isBelarusianLyrics,
+                                romanizeKyrgyzLyrics = romanizeKyrgyzLyrics,
+                                isKyrgyzLyrics = isKyrgyzLyrics,
+                                romanizeMacedonianLyrics = romanizeMacedonianLyrics,
+                                isMacedonianLyrics = isMacedonianLyrics,
+                                romanizeCyrillicByLine = romanizeCyrillicByLine,
+                                romanizeChineseLyrics = romanizeChineseLyrics
+                            )
                             newEntry
                         }
                     )
@@ -798,8 +725,36 @@ fun Lyrics(
                         .asPaddingValues(),
                     modifier = Modifier
                         .fadingEdge(vertical = 64.dp)
+                        .nestedScroll(remember {
+                            object : NestedScrollConnection {
+                                override fun onPostScroll(
+                                    consumed: Offset,
+                                    available: Offset,
+                                    source: NestedScrollSource
+                                ): Offset {
+                                    if (source == NestedScrollSource.UserInput) {
+                                        isAutoScrollEnabled = false
+                                    }
+                                    if (!isSelectionModeActive) { // Only update preview time if not selecting
+                                        lastPreviewTime = System.currentTimeMillis()
+                                    }
+                                    return super.onPostScroll(consumed, available, source)
+                                }
+
+                                override suspend fun onPostFling(
+                                    consumed: Velocity,
+                                    available: Velocity
+                                ): Velocity {
+                                    isAutoScrollEnabled = false
+                                    if (!isSelectionModeActive) { // Only update preview time if not selecting
+                                        lastPreviewTime = System.currentTimeMillis()
+                                    }
+                                    return super.onPostFling(consumed, available)
+                                }
+                            }
+                        })
                 ) {
-                    itemsIndexed(lines) { index, line ->
+                    itemsIndexed(lines, key = { index, item -> "$index-${item.startTime}" }) { index, line ->
                         if (line.speaker is SpeakerRole.V1 || line.speaker is SpeakerRole.V2) {
                             lastPrimarySpeaker = line.speaker
                         }
@@ -824,15 +779,57 @@ fun Lyrics(
                         }
 
                         val isActiveLine = index == currentLineIndex
+                        val isSelected = selectedIndices.contains(index)
 
-                        HierarchicalLyricsLine(
-                            line = line,
-                            isActive = isActiveLine,
-                            currentPosition = currentPlaybackPosition,
-                            textAlign = textAlign,
-                            inactiveColor = expressiveAccent.copy(alpha = 0.5f),
-                            activeColor = expressiveAccent
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .combinedClickable(
+                                    enabled = true,
+                                    onClick = {
+                                        if (isSelectionModeActive) {
+                                            if (isSelected) {
+                                                selectedIndices.remove(index)
+                                                if (selectedIndices.isEmpty()) {
+                                                    isSelectionModeActive = false
+                                                }
+                                            } else {
+                                                if (selectedIndices.size < maxSelectionLimit) {
+                                                    selectedIndices.add(index)
+                                                } else {
+                                                    showMaxSelectionToast = true
+                                                }
+                                            }
+                                        } else if (isSynced && changeLyrics) {
+                                            playerConnection.player.seekTo((line.startTime * 1000).toLong())
+                                            scope.launch {
+                                                lazyListState.animateScrollToItem(index = index)
+                                            }
+                                            lastPreviewTime = 0L
+                                        }
+                                    },
+                                    onLongClick = {
+                                        if (!isSelectionModeActive) {
+                                            isSelectionModeActive = true
+                                            selectedIndices.add(index)
+                                        }
+                                    }
+                                )
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                    else Color.Transparent
+                                )
+                        ) {
+                            HierarchicalLyricsLine(
+                                line = line,
+                                isActive = isActiveLine,
+                                currentPosition = currentPlaybackPosition,
+                                textAlign = textAlign,
+                                inactiveColor = expressiveAccent.copy(alpha = 0.5f),
+                                activeColor = expressiveAccent
+                            )
+                        }
                     }
                 }
             }
@@ -1840,3 +1837,54 @@ private const val METROLIST_FAST_SEEK_DURATION = 600L // Less aggressive seeking
 
 // Lyrics constants
 val LyricsPreviewTime = 2.seconds
+
+private fun CoroutineScope.launchRomanization(
+    entry: LyricsEntry,
+    text: String = entry.text,
+    romanizeJapaneseLyrics: Boolean,
+    romanizeKoreanLyrics: Boolean,
+    romanizeRussianLyrics: Boolean,
+    isRussianLyrics: Boolean,
+    romanizeUkrainianLyrics: Boolean,
+    isUkrainianLyrics: Boolean,
+    romanizeSerbianLyrics: Boolean,
+    isSerbianLyrics: Boolean,
+    romanizeBulgarianLyrics: Boolean,
+    isBulgarianLyrics: Boolean,
+    romanizeBelarusianLyrics: Boolean,
+    isBelarusianLyrics: Boolean,
+    romanizeKyrgyzLyrics: Boolean,
+    isKyrgyzLyrics: Boolean,
+    romanizeMacedonianLyrics: Boolean,
+    isMacedonianLyrics: Boolean,
+    romanizeCyrillicByLine: Boolean,
+    romanizeChineseLyrics: Boolean
+) {
+    if (romanizeJapaneseLyrics && isJapanese(text) && !isChinese(text)) {
+        launch { entry.romanizedTextFlow.value = romanizeJapanese(text) }
+        return
+    }
+    if (romanizeKoreanLyrics && isKorean(text)) {
+        launch { entry.romanizedTextFlow.value = romanizeKorean(text) }
+        return
+    }
+    if (romanizeChineseLyrics && isChinese(text)) {
+        launch { entry.romanizedTextFlow.value = romanizeChinese(text) }
+        return
+    }
+
+    val isCyrillic = when {
+        romanizeRussianLyrics && (if (romanizeCyrillicByLine) isRussian(text) else isRussianLyrics) -> true
+        romanizeUkrainianLyrics && (if (romanizeCyrillicByLine) isUkrainian(text) else isUkrainianLyrics) -> true
+        romanizeSerbianLyrics && (if (romanizeCyrillicByLine) isSerbian(text) else isSerbianLyrics) -> true
+        romanizeBulgarianLyrics && (if (romanizeCyrillicByLine) isBulgarian(text) else isBulgarianLyrics) -> true
+        romanizeBelarusianLyrics && (if (romanizeCyrillicByLine) isBelarusian(text) else isBelarusianLyrics) -> true
+        romanizeKyrgyzLyrics && (if (romanizeCyrillicByLine) isKyrgyz(text) else isKyrgyzLyrics) -> true
+        romanizeMacedonianLyrics && (if (romanizeCyrillicByLine) isMacedonian(text) else isMacedonianLyrics) -> true
+        else -> false
+    }
+
+    if (isCyrillic) {
+        launch { entry.romanizedTextFlow.value = romanizeCyrillic(text) }
+    }
+}
