@@ -207,7 +207,7 @@ fun HierarchicalLyricsLine(
 
     val textStyle = TextStyle(
         fontSize = if (line.speaker is SpeakerRole.BG) (lyricsTextSize * 0.8f).sp else lyricsTextSize.sp,
-        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+        fontWeight = FontWeight.Bold,
         textAlign = textAlign,
         lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
     )
