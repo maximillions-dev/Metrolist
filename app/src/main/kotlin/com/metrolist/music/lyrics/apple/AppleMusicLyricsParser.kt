@@ -10,8 +10,16 @@ object AppleMusicLyricsParser {
         val lines = lrc.lines()
         val lyricLines = mutableListOf<LyricLine>()
 
+        val hasV2 = lrc.contains("v2:")
+        var lastLeadAlignment = LineAlignment.CENTER
+
         lines.forEachIndexed { index, line ->
-            parseLine(line)?.let { lyricLines.add(it) }
+            parseLine(line, hasV2, lastLeadAlignment)?.let { parsedLine ->
+                lyricLines.add(parsedLine)
+                if (parsedLine.speaker != Speaker.BACKGROUND) {
+                    lastLeadAlignment = parsedLine.alignment
+                }
+            }
         }
 
         // Correct end times for the last word of each line
@@ -36,7 +44,7 @@ object AppleMusicLyricsParser {
         return HierarchicalLyrics(lines = lyricLines)
     }
 
-    private fun parseLine(line: String): LyricLine? {
+    private fun parseLine(line: String, hasV2: Boolean, lastLeadAlignment: LineAlignment): LyricLine? {
         val content: String
         val lineStartTime: Long
 
@@ -57,6 +65,12 @@ object AppleMusicLyricsParser {
             else -> Speaker.LEAD_RIGHT
         }
 
+        val alignment = when (speaker) {
+            Speaker.LEAD_LEFT -> LineAlignment.LEFT
+            Speaker.LEAD_RIGHT -> if (hasV2) LineAlignment.RIGHT else LineAlignment.CENTER
+            Speaker.BACKGROUND -> lastLeadAlignment
+        }
+
         val cleanContent = content.replace("v1:", "").replace("v2:", "").replace("bg:", "")
 
         val words = wordRegex.findAll(cleanContent).mapIndexed { index, matchResult ->
@@ -71,7 +85,7 @@ object AppleMusicLyricsParser {
 
         if (words.isEmpty()) return null
 
-        return LyricLine(lineStartTime, words, speaker)
+        return LyricLine(lineStartTime, words, speaker, alignment)
     }
 
     private fun parseTime(time: String): Long {

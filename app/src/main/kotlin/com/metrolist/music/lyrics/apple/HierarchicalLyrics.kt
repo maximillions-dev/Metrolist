@@ -7,7 +7,8 @@ data class HierarchicalLyrics(
 data class LyricLine(
     val startTime: Long,
     val words: List<LyricWord>,
-    val speaker: Speaker
+    val speaker: Speaker,
+    val alignment: LineAlignment
 )
 
 data class LyricWord(
@@ -20,4 +21,10 @@ enum class Speaker {
     LEAD_LEFT,
     LEAD_RIGHT,
     BACKGROUND
+}
+
+enum class LineAlignment {
+    LEFT,
+    RIGHT,
+    CENTER
 }

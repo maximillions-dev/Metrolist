@@ -84,6 +84,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -98,6 +99,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
@@ -112,6 +114,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -169,6 +172,7 @@ import com.metrolist.music.lyrics.LyricsUtils.romanizeCyrillic
 import com.metrolist.music.lyrics.LyricsUtils.romanizeJapanese
 import com.metrolist.music.lyrics.LyricsUtils.romanizeKorean
 import com.metrolist.music.lyrics.LyricsUtils.romanizeChinese
+import com.metrolist.music.lyrics.apple.LineAlignment
 import com.metrolist.music.ui.component.shimmer.ShimmerHost
 import com.metrolist.music.ui.component.shimmer.TextPlaceholder
 import com.metrolist.music.ui.screens.settings.DarkMode
@@ -1093,96 +1097,32 @@ fun Lyrics(
                             }
                             Text(text = styledText, fontSize = lyricsTextSize.sp, textAlign = alignment, lineHeight = (lyricsTextSize * lyricsLineSpacing).sp)
                         } else if (hasWordTimings && item.words != null && lyricsAnimationStyle == LyricsAnimationStyle.APPLE_2) {
-                            val textMeasurer = rememberTextMeasurer()
-                            val lineText = item.text
-                            val speakerTag = when {
-                                lineText.startsWith("v1:") -> "v1"
-                                lineText.startsWith("v2:") -> "v2"
-                                lineText.startsWith("bg:") -> "bg"
-                                else -> null
-                            }
-                            val cleanText = speakerTag?.let { lineText.removePrefix("${it}:").trim() } ?: lineText.trim()
-
-                            val lineAlignment = when (speakerTag) {
-                                "v1" -> TextAlign.End
-                                "v2" -> TextAlign.Start
+                            val lineAlignment = when (item.alignment) {
+                                LineAlignment.LEFT -> TextAlign.Start
+                                LineAlignment.RIGHT -> TextAlign.End
                                 else -> TextAlign.Center
                             }
-                            val lineAlpha = if (speakerTag == "bg") 0.5f else 1f
-                            val lineScale = if (speakerTag == "bg") 0.9f else 1f
+                            var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+                            val cleanText = remember(item.text) { item.text.replace(Regex("^(v1:|v2:|bg:)"), "").trim() }
 
-                            val textStyle = TextStyle(
+                            Text(
+                                text = cleanText,
+                                onTextLayout = { textLayoutResult = it },
                                 fontSize = lyricsTextSize.sp,
-                                fontWeight = FontWeight.Bold,
                                 textAlign = lineAlignment,
-                                color = if (isActiveLine) expressiveAccent else expressiveAccent.copy(alpha = 0.3f)
-                            )
-
-                            val textLayoutResult = remember(cleanText) {
-                                textMeasurer.measure(
-                                    text = AnnotatedString(cleanText),
-                                    style = textStyle
-                                )
-                            }
-
-                            Box(
+                                color = expressiveAccent.copy(alpha = 0.3f), // Base color
+                                fontWeight = FontWeight.Bold,
+                                lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .alpha(lineAlpha)
-                                    .graphicsLayer {
-                                        scaleX = lineScale
-                                        scaleY = lineScale
-                                    }
-                                    .height(with(LocalDensity.current) { textLayoutResult.size.height.toDp() })
-                                    .drawWithCache {
-                                        val inactivePaint = Paint().asFrameworkPaint().apply {
-                                            isAntiAlias = true
-                                            color = expressiveAccent
-                                                .copy(alpha = 0.3f)
-                                                .toArgb()
-                                            style = android.graphics.Paint.Style.FILL
-                                            textSize = lyricsTextSize.sp.toPx()
-                                            typeface = android.graphics.Typeface.DEFAULT_BOLD
-                                        }
-
-                                        val activePaint = Paint().asFrameworkPaint().apply {
-                                            isAntiAlias = true
-                                            color = expressiveAccent.toArgb()
-                                            style = android.graphics.Paint.Style.FILL
-                                            textSize = lyricsTextSize.sp.toPx()
-                                            typeface = android.graphics.Typeface.DEFAULT_BOLD
-                                        }
-
-                                        onDrawBehind {
-                                            val textWidth = textLayoutResult.size.width
-                                            val textHeight = textLayoutResult.size.height
-                                            val canvasWidth = size.width
-
-                                            val xOffset = when (lineAlignment) {
-                                                TextAlign.Start -> 0f
-                                                TextAlign.End -> canvasWidth - textWidth
-                                                else -> (canvasWidth - textWidth) / 2f
-                                            }
-                                            val yOffset = (size.height - textHeight) / 2f
-
-                                            if (!isActiveLine) {
-                                                drawIntoCanvas {
-                                                    it.nativeCanvas.drawText(
-                                                        cleanText,
-                                                        xOffset,
-                                                        yOffset + textLayoutResult.firstBaseline,
-                                                        inactivePaint
-                                                    )
-                                                }
-                                                return@onDrawBehind
-                                            }
-
-                                            var currentWordsWidth = 0f
-
+                                    .drawWithContent {
+                                        drawContent()
+                                        textLayoutResult?.let { layoutResult ->
+                                            var lastWordEndIndex = 0
                                             item.words.forEach { word ->
-                                                val wordText = word.text
-                                                val measuredWord = textMeasurer.measure(AnnotatedString(wordText), style = textStyle)
-                                                val wordWidth = measuredWord.size.width.toFloat()
+                                                val wordStartIndex = cleanText.indexOf(word.text, lastWordEndIndex)
+                                                if (wordStartIndex == -1) return@forEach // Should not happen
+                                                val wordEndIndex = wordStartIndex + word.text.length
 
                                                 val wordStartMs = (word.startTime * 1000).toLong()
                                                 val wordEndMs = (word.endTime * 1000).toLong()
@@ -1194,37 +1134,32 @@ fun Lyrics(
                                                 val progress = if (isWordActive) {
                                                     val x = ((currentPlaybackPosition - wordStartMs).toFloat() / wordDuration).coerceIn(0f, 1f)
                                                     3 * x * x - 2 * x * x * x // Cubic easing
-                                                } else if (hasWordPassed) {
-                                                    1f
-                                                } else {
-                                                    0f
-                                                }
+                                                } else if (hasWordPassed) 1f else 0f
 
-                                                drawIntoCanvas { canvas ->
-                                                    canvas.nativeCanvas.drawText(
-                                                        wordText,
-                                                        xOffset + currentWordsWidth,
-                                                        yOffset + textLayoutResult.firstBaseline,
-                                                        inactivePaint
-                                                    )
+                                                if (progress > 0f) {
+                                                    val progressInChars = word.text.length * progress
+                                                    val fullChars = progressInChars.toInt()
+                                                    val partialCharProgress = progressInChars - fullChars
 
-                                                    val wipeWidth = wordWidth * progress
-                                                    canvas.save()
-                                                    canvas.clipRect(
-                                                        left = xOffset + currentWordsWidth,
-                                                        top = yOffset,
-                                                        right = xOffset + currentWordsWidth + wipeWidth,
-                                                        bottom = yOffset + textHeight
-                                                    )
-                                                    canvas.nativeCanvas.drawText(
-                                                        wordText,
-                                                        xOffset + currentWordsWidth,
-                                                        yOffset + textLayoutResult.firstBaseline,
-                                                        activePaint
-                                                    )
-                                                    canvas.restore()
+                                                    // 1. Draw the part of the word that is fully colored
+                                                    if (fullChars > 0) {
+                                                        val path = layoutResult.getPathForRange(wordStartIndex, wordStartIndex + fullChars)
+                                                        drawPath(path, color = expressiveAccent, blendMode = BlendMode.SrcIn)
+                                                    }
+
+                                                    // 2. Draw the single character that is partially colored
+                                                    if (fullChars < word.text.length && partialCharProgress > 0) {
+                                                        val partialCharIndex = wordStartIndex + fullChars
+                                                        val charBox = layoutResult.getBoundingBox(partialCharIndex)
+                                                        drawRect(
+                                                            color = expressiveAccent,
+                                                            topLeft = charBox.topLeft,
+                                                            size = charBox.size.copy(width = charBox.width * partialCharProgress),
+                                                            blendMode = BlendMode.SrcIn
+                                                        )
+                                                    }
                                                 }
-                                                currentWordsWidth += wordWidth
+                                                lastWordEndIndex = wordEndIndex
                                             }
                                         }
                                     }

@@ -5,6 +5,7 @@
 
 package com.metrolist.music.lyrics
 
+import com.metrolist.music.lyrics.apple.LineAlignment
 import kotlinx.coroutines.flow.MutableStateFlow
 
 data class WordTimestamp(
@@ -17,6 +18,7 @@ data class LyricsEntry(
     val time: Long,
     val text: String,
     val words: List<WordTimestamp>? = null,
+    val alignment: LineAlignment? = null,
     val romanizedTextFlow: MutableStateFlow<String?> = MutableStateFlow(null)
 ) : Comparable<LyricsEntry> {
     override fun compareTo(other: LyricsEntry): Int = (time - other.time).toInt()

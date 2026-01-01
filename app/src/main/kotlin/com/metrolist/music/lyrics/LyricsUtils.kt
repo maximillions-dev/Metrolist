@@ -291,7 +291,7 @@ object LyricsUtils {
                 val words = line.words.map {
                     WordTimestamp(it.text, it.startTime / 1000.0, it.endTime / 1000.0)
                 }
-                LyricsEntry(line.startTime, text, words)
+                LyricsEntry(line.startTime, text, words, line.alignment)
             }
         }
 
