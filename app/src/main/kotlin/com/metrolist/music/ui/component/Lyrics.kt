@@ -1117,49 +1117,56 @@ fun Lyrics(
                                     .fillMaxWidth()
                                     .drawWithContent {
                                         drawContent()
-                                        textLayoutResult?.let { layoutResult ->
-                                            var lastWordEndIndex = 0
-                                            item.words.forEach { word ->
-                                                val wordStartIndex = cleanText.indexOf(word.text, lastWordEndIndex)
-                                                if (wordStartIndex == -1) return@forEach // Should not happen
-                                                val wordEndIndex = wordStartIndex + word.text.length
+                                        if (isActiveLine) {
+                                            textLayoutResult?.let { layoutResult ->
+                                                var lastWordEndIndex = 0
+                                                item.words.forEach { word ->
+                                                    val wordStartIndex = cleanText.indexOf(word.text, lastWordEndIndex)
+                                                    if (wordStartIndex == -1) return@forEach
 
-                                                val wordStartMs = (word.startTime * 1000).toLong()
-                                                val wordEndMs = (word.endTime * 1000).toLong()
-                                                val wordDuration = (wordEndMs - wordStartMs).coerceAtLeast(1)
+                                                    val wordEndIndex = wordStartIndex + word.text.length
+                                                    val wordStartMs = (word.startTime * 1000).toLong()
+                                                    val wordEndMs = (word.endTime * 1000).toLong()
+                                                    val wordDuration = (wordEndMs - wordStartMs).coerceAtLeast(1)
 
-                                                val isWordActive = currentPlaybackPosition in wordStartMs until wordEndMs
-                                                val hasWordPassed = currentPlaybackPosition >= wordEndMs
+                                                    val isWordActive = currentPlaybackPosition in wordStartMs until wordEndMs
+                                                    val hasWordPassed = currentPlaybackPosition >= wordEndMs
 
-                                                val progress = if (isWordActive) {
-                                                    val x = ((currentPlaybackPosition - wordStartMs).toFloat() / wordDuration).coerceIn(0f, 1f)
-                                                    3 * x * x - 2 * x * x * x // Cubic easing
-                                                } else if (hasWordPassed) 1f else 0f
+                                                    val progress = if (isWordActive) {
+                                                        val x = ((currentPlaybackPosition - wordStartMs).toFloat() / wordDuration).coerceIn(0f, 1f)
+                                                        3 * x * x - 2 * x * x * x // Cubic easing
+                                                    } else if (hasWordPassed) {
+                                                        1f
+                                                    } else {
+                                                        0f
+                                                    }
 
-                                                if (progress > 0f) {
-                                                    val progressInChars = word.text.length * progress
-                                                    val fullChars = progressInChars.toInt()
-                                                    val partialCharProgress = progressInChars - fullChars
-
-                                                    // 1. Draw the part of the word that is fully colored
-                                                    if (fullChars > 0) {
-                                                        val path = layoutResult.getPathForRange(wordStartIndex, wordStartIndex + fullChars)
+                                                    if (hasWordPassed) {
+                                                        val path = layoutResult.getPathForRange(wordStartIndex, wordEndIndex)
                                                         drawPath(path, color = expressiveAccent, blendMode = BlendMode.SrcIn)
-                                                    }
+                                                    } else if (isWordActive && progress > 0f) {
+                                                        val progressInChars = word.text.length * progress
+                                                        val fullChars = progressInChars.toInt()
+                                                        val partialCharProgress = progressInChars - fullChars
 
-                                                    // 2. Draw the single character that is partially colored
-                                                    if (fullChars < word.text.length && partialCharProgress > 0) {
-                                                        val partialCharIndex = wordStartIndex + fullChars
-                                                        val charBox = layoutResult.getBoundingBox(partialCharIndex)
-                                                        drawRect(
-                                                            color = expressiveAccent,
-                                                            topLeft = charBox.topLeft,
-                                                            size = charBox.size.copy(width = charBox.width * partialCharProgress),
-                                                            blendMode = BlendMode.SrcIn
-                                                        )
+                                                        if (fullChars > 0) {
+                                                            val path = layoutResult.getPathForRange(wordStartIndex, wordStartIndex + fullChars)
+                                                            drawPath(path, color = expressiveAccent, blendMode = BlendMode.SrcIn)
+                                                        }
+
+                                                        if (fullChars < word.text.length && partialCharProgress > 0) {
+                                                            val partialCharIndex = wordStartIndex + fullChars
+                                                            val charBox = layoutResult.getBoundingBox(partialCharIndex)
+                                                            drawRect(
+                                                                color = expressiveAccent,
+                                                                topLeft = charBox.topLeft,
+                                                                size = charBox.size.copy(width = charBox.width * partialCharProgress),
+                                                                blendMode = BlendMode.SrcIn
+                                                            )
+                                                        }
                                                     }
+                                                    lastWordEndIndex = wordEndIndex
                                                 }
-                                                lastWordEndIndex = wordEndIndex
                                             }
                                         }
                                     }

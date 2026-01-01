@@ -58,10 +58,12 @@ object AppleMusicLyricsParser {
             content = line
         }
 
+        val trimmedContent = content.trim()
+
         val speaker = when {
-            content.contains("v1:") -> Speaker.LEAD_RIGHT
-            content.contains("v2:") -> Speaker.LEAD_LEFT
-            content.contains("bg:") -> Speaker.BACKGROUND
+            trimmedContent.startsWith("v1:") -> Speaker.LEAD_RIGHT
+            trimmedContent.startsWith("v2:") -> Speaker.LEAD_LEFT
+            trimmedContent.startsWith("bg:") -> Speaker.BACKGROUND
             else -> Speaker.LEAD_RIGHT
         }
 
@@ -71,9 +73,13 @@ object AppleMusicLyricsParser {
             Speaker.BACKGROUND -> lastLeadAlignment
         }
 
-        val cleanContent = content.replace("v1:", "").replace("v2:", "").replace("bg:", "")
+        val cleanContent = trimmedContent
+            .removePrefix("v1:")
+            .removePrefix("v2:")
+            .removePrefix("bg:")
+            .trim()
 
-        val words = wordRegex.findAll(cleanContent).mapIndexed { index, matchResult ->
+        val words = wordRegex.findAll(cleanContent).mapIndexed { _, matchResult ->
             val startTime = parseTime(matchResult.groupValues[1])
             val text = matchResult.groupValues[2]
 
