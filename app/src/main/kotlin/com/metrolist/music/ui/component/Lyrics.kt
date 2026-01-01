@@ -482,9 +482,8 @@ fun Lyrics(
     }
     val textColor = expressiveAccent
 
-    var currentLineIndex by remember {
-        mutableIntStateOf(-1)
-    }
+    var activeLineIndices by remember { mutableStateOf(emptySet<Int>()) }
+    val currentLineIndex = remember(activeLineIndices) { activeLineIndices.maxOrNull() ?: -1 }
     var currentPlaybackPosition by remember {
         mutableLongStateOf(0L)
     }
@@ -495,7 +494,7 @@ fun Lyrics(
     }
 
     var previousLineIndex by rememberSaveable {
-        mutableIntStateOf(0)
+        mutableIntStateOf(-1)
     }
 
     var lastPreviewTime by rememberSaveable {
@@ -596,9 +595,9 @@ fun Lyrics(
         selectedIndices.clear()
     }
 
-    LaunchedEffect(lyrics) {
+    LaunchedEffect(lyricsContent) {
         if (lyrics.isNullOrEmpty()) {
-            currentLineIndex = -1
+            activeLineIndices = emptySet()
             return@LaunchedEffect
         }
         while (isActive) {
@@ -607,10 +606,25 @@ fun Lyrics(
             isSeeking = sliderPosition != null
             val position = sliderPosition ?: playerConnection.player.currentPosition
             currentPlaybackPosition = position
-            if (lyricsContent is LyricsContent.Standard) {
-                currentLineIndex = findCurrentLineIndex((lyricsContent as LyricsContent.Standard).lines, position)
-            } else if (lyricsContent is LyricsContent.Hierarchical) {
-                currentLineIndex = (lyricsContent as LyricsContent.Hierarchical).lines.indexOfLast { (it.startTime * 1000) <= position }
+
+            when (lyricsContent) {
+                is LyricsContent.Standard -> {
+                    val newIndex = findCurrentLineIndex(lyricsContent.lines, position)
+                    activeLineIndices = if (newIndex != -1) setOf(newIndex) else emptySet()
+                }
+                is LyricsContent.Hierarchical -> {
+                    val lines = lyricsContent.lines
+                    val indices = lines.indices.filter { index ->
+                        val line = lines[index]
+                        val startTimeMs = (line.startTime * 1000).toLong()
+                        val endTimeMs = (line.endTime * 1000).toLong()
+                        position in startTimeMs until endTimeMs
+                    }.toSet()
+                    activeLineIndices = indices
+                }
+                else -> {
+                    activeLineIndices = emptySet()
+                }
             }
         }
     }
@@ -650,36 +664,73 @@ fun Lyrics(
         }
     }
     LaunchedEffect(currentLineIndex, lastPreviewTime, initialScrollDone, isAutoScrollEnabled) {
-        if (!isSynced) return@LaunchedEffect
-        if (isAutoScrollEnabled) {
-        if((currentLineIndex == 0 && shouldScrollToFirstLine) || !initialScrollDone) {
-            shouldScrollToFirstLine = false
-            // Initial scroll to center the first line with medium animation (600ms)
-            val initialCenterIndex = kotlin.math.max(0, currentLineIndex)
-            performSmoothPageScroll(initialCenterIndex, 800) // Initial scroll duration
-            if(!isAppMinimized) {
-                initialScrollDone = true
+        if (!isSynced || !isAutoScrollEnabled) return@LaunchedEffect
+
+        // Logic for Hierarchical (Apple Music Enhanced) lyrics
+        if (lyricsContent is LyricsContent.Hierarchical) {
+            if (currentLineIndex == -1) return@LaunchedEffect
+
+            // Only scroll if the main line has changed
+            if (currentLineIndex != previousLineIndex) {
+                val lines = lyricsContent.lines
+                val previousLine = lines.getOrNull(previousLineIndex)
+                val currentLine = lines.getOrNull(currentLineIndex)
+
+                // Initial Scroll
+                if (previousLineIndex == -1 && currentLine != null) {
+                    performSmoothPageScroll(currentLineIndex, 800)
+                }
+                // Subsequent Scrolls
+                else if (previousLine != null && currentLine != null) {
+                    val previousLineEndTimeMs = (previousLine.endTime * 1000).toLong()
+                    val scrollThresholdTimeMs = (currentLine.startTime * 1000).toLong() + 200
+
+                    val scheduledScrollTimeMs = maxOf(previousLineEndTimeMs, scrollThresholdTimeMs)
+
+                    val delayDuration = scheduledScrollTimeMs - currentPlaybackPosition
+                    if (delayDuration > 0) {
+                        delay(delayDuration)
+                    }
+
+                    // Before scrolling, confirm this is still the correct target.
+                    // Another line might have become active during the delay.
+                    if (isActive && currentLineIndex == activeLineIndices.maxOrNull()) {
+                        performSmoothPageScroll(currentLineIndex, 1500)
+                    }
+                }
+                previousLineIndex = currentLineIndex
             }
-        } else if (currentLineIndex != -1) {
-            deferredCurrentLineIndex = currentLineIndex
-            if (isSeeking) {
-                // Fast scroll for seeking to center the target line (300ms)
-                val seekCenterIndex = kotlin.math.max(0, currentLineIndex)
-                performSmoothPageScroll(seekCenterIndex, 500) // Fast seek duration
-            } else if ((lastPreviewTime == 0L || currentLineIndex != previousLineIndex) && scrollLyrics) {
-                // Auto-scroll when lyrics settings allow it
-                if (currentLineIndex != previousLineIndex) {
-                    // Calculate which line should be at the top to center the active group
-                    val centerTargetIndex = currentLineIndex
-                    performSmoothPageScroll(centerTargetIndex, 1500) // Auto scroll duration
+        }
+        // Logic for Standard lyrics
+        else {
+            if ((currentLineIndex == 0 && shouldScrollToFirstLine) || !initialScrollDone) {
+                shouldScrollToFirstLine = false
+                // Initial scroll to center the first line with medium animation (600ms)
+                val initialCenterIndex = kotlin.math.max(0, currentLineIndex)
+                performSmoothPageScroll(initialCenterIndex, 800) // Initial scroll duration
+                if (!isAppMinimized) {
+                    initialScrollDone = true
+                }
+            } else if (currentLineIndex != -1) {
+                deferredCurrentLineIndex = currentLineIndex
+                if (isSeeking) {
+                    // Fast scroll for seeking to center the target line (300ms)
+                    val seekCenterIndex = kotlin.math.max(0, currentLineIndex - 1)
+                    performSmoothPageScroll(seekCenterIndex, 500) // Fast seek duration
+                } else if ((lastPreviewTime == 0L || currentLineIndex != previousLineIndex) && scrollLyrics) {
+                    // Auto-scroll when lyrics settings allow it
+                    if (currentLineIndex != previousLineIndex) {
+                        // Calculate which line should be at the top to center the active group
+                        val centerTargetIndex = currentLineIndex
+                        performSmoothPageScroll(centerTargetIndex, 1500) // Auto scroll duration
+                    }
                 }
             }
+            if (currentLineIndex > 0) {
+                shouldScrollToFirstLine = true
+            }
+            previousLineIndex = currentLineIndex
         }
-        }
-        if(currentLineIndex > 0) {
-            shouldScrollToFirstLine = true
-        }
-        previousLineIndex = currentLineIndex
     }
 
     BoxWithConstraints(
@@ -788,7 +839,7 @@ fun Lyrics(
                             }
                         }
 
-                        val isActiveLine = index == currentLineIndex
+                        val isActiveLine = activeLineIndices.contains(index)
                         val isSelected = selectedIndices.contains(index)
 
                         Box(
