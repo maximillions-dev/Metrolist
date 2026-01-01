@@ -256,16 +256,32 @@ fun HierarchicalLyricsLine(
                             } else 1f
                         } else 1f // Already passed lines are fully filled
 
-                        val activeWordCharOffset = (activeWord.text.length * wordProgress).toInt()
-                        val totalCharOffset = (activeWordStartOffset + activeWordCharOffset)
-                            .coerceAtMost(measuredText.layoutInput.text.length)
+                        val wordProgressFloat = activeWord.text.length * wordProgress
+                        val currentCharIndex = wordProgressFloat.toInt()
+                        val subCharProgress = wordProgressFloat - currentCharIndex
 
+                        val totalCharOffsetStart = activeWordStartOffset + currentCharIndex
+                        val totalCharOffsetEnd = (totalCharOffsetStart + 1).coerceAtMost(measuredText.layoutInput.text.length)
 
-                        if (totalCharOffset > 0) {
+                        val clipStart = measuredText.getHorizontalPosition(totalCharOffsetStart, true)
+                        val clipEnd = measuredText.getHorizontalPosition(totalCharOffsetEnd, true)
+
+                        val startLine = measuredText.getLineForOffset(totalCharOffsetStart)
+                        val endLine = measuredText.getLineForOffset(totalCharOffsetEnd)
+
+                        val horizontalClip = if (startLine != endLine || clipEnd < clipStart) {
+                            // Word wraps or is at the end of a line, fill up to the start position
+                            clipStart
+                        } else {
+                            // Interpolate for a smooth wipe effect
+                            clipStart + (clipEnd - clipStart) * subCharProgress
+                        }
+
+                        if (horizontalClip > 0) {
                             val pathForClipping = androidx.compose.ui.graphics.Path()
-                            val activeLineIndex = measuredText.getLineForOffset(totalCharOffset)
+                            val activeLineIndex = measuredText.getLineForOffset(totalCharOffsetStart)
 
-                            // Add rects for all the lines before the current one
+                            // Add rects for all the lines before the current active one
                             for (i in 0 until activeLineIndex) {
                                 pathForClipping.addRect(
                                     androidx.compose.ui.geometry.Rect(
@@ -277,11 +293,7 @@ fun HierarchicalLyricsLine(
                                 )
                             }
 
-                            // Add rect for the current line
-                            val horizontalClip = measuredText.getHorizontalPosition(
-                                offset = totalCharOffset,
-                                usePrimaryDirection = true
-                            )
+                            // Add a rect for the current line, clipped smoothly
                             pathForClipping.addRect(
                                 androidx.compose.ui.geometry.Rect(
                                     left = measuredText.getLineLeft(activeLineIndex),
