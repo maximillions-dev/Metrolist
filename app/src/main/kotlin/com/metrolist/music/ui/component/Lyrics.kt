@@ -185,6 +185,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.seconds
 
+private const val BLUR_MULTIPLIER = 8f
+private const val MAX_BLUR_RADIUS = 32f
+
 private sealed class LyricsContent {
     data class Standard(val lines: List<LyricsEntry>) : LyricsContent()
     data class Hierarchical(val lines: List<LyricLine>) : LyricsContent()
@@ -200,6 +203,7 @@ fun HierarchicalLyricsLine(
     textAlign: TextAlign,
     inactiveColor: Color,
     activeColor: Color,
+    blurRadius: Float,
 ) {
     val textMeasurer = rememberTextMeasurer()
     val lyricsTextSize by rememberPreference(LyricsTextSizeKey, 24f)
@@ -210,6 +214,11 @@ fun HierarchicalLyricsLine(
         fontWeight = FontWeight.Bold,
         textAlign = textAlign,
         lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
+        shadow = if (blurRadius > 0f) Shadow(
+            color = inactiveColor.copy(alpha = 0.5f),
+            offset = Offset.Zero,
+            blurRadius = blurRadius
+        ) else null
     )
 
     Text(
@@ -844,6 +853,25 @@ fun Lyrics(
                         val isActiveLine = activeLineIndices.contains(index)
                         val isSelected = selectedIndices.contains(index)
 
+                        val distance = if (activeLineIndices.isNotEmpty()) {
+                            activeLineIndices.minOf { activeIndex -> kotlin.math.abs(index - activeIndex) }
+                        } else {
+                            // Default to a high distance if no line is active
+                            lines.size
+                        }
+
+                        val targetBlur = if (isActiveLine) {
+                            0f
+                        } else {
+                            // Increase blur with distance
+                            (distance * BLUR_MULTIPLIER).coerceAtMost(MAX_BLUR_RADIUS)
+                        }
+
+                        val animatedBlur by animateFloatAsState(
+                            targetValue = if (isAutoScrollEnabled) targetBlur else 0f,
+                            animationSpec = tween(250)
+                        )
+
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -890,7 +918,8 @@ fun Lyrics(
                                 currentPosition = currentPlaybackPosition,
                                 textAlign = textAlign,
                                 inactiveColor = expressiveAccent.copy(alpha = 0.5f),
-                                activeColor = expressiveAccent
+                                activeColor = expressiveAccent,
+                                blurRadius = animatedBlur
                             )
                         }
                     }
