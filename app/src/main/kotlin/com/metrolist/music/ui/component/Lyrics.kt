@@ -590,6 +590,7 @@ fun Lyrics(
     // Professional animation states for smooth Metrolist-style transitions
     var isAnimating by remember { mutableStateOf(false) }
     var isAutoScrollEnabled by rememberSaveable { mutableStateOf(true) }
+    var blurFocalPoint by rememberSaveable { mutableIntStateOf(0) }
 
     // Handle back button press - close selection mode instead of exiting screen
     BackHandler(enabled = isSelectionModeActive) {
@@ -648,6 +649,12 @@ fun Lyrics(
     LaunchedEffect(lyricsContent) {
         isSelectionModeActive = false
         selectedIndices.clear()
+    }
+
+    LaunchedEffect(currentLineIndex) {
+        if (currentLineIndex != -1) {
+            blurFocalPoint = currentLineIndex
+        }
     }
 
     LaunchedEffect(lyricsContent) {
@@ -900,7 +907,7 @@ fun Lyrics(
                         val animatedBlur = rememberAnimatedBlur(
                             lazyListState = lazyListState,
                             currentIndex = index,
-                            activeIndex = activeLineIndices.maxOrNull() ?: index,
+                            activeIndex = activeLineIndices.maxOrNull() ?: blurFocalPoint,
                             isSynced = true, // Hierarchical is always synced
                             stepBlur = stepBlur,
                             maxBlur = maxBlur,
@@ -1099,7 +1106,7 @@ fun Lyrics(
                     val animatedBlur = rememberAnimatedBlur(
                         lazyListState = lazyListState,
                         currentIndex = index,
-                        activeIndex = displayedCurrentLineIndex,
+                        activeIndex = if (displayedCurrentLineIndex != -1) displayedCurrentLineIndex else blurFocalPoint,
                         isSynced = isSynced,
                         stepBlur = stepBlur,
                         maxBlur = maxBlur,
