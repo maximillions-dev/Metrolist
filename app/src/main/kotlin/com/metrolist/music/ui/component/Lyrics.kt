@@ -14,6 +14,8 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -50,6 +52,7 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -91,6 +94,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
@@ -107,12 +111,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import kotlin.math.abs
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -184,6 +190,49 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.seconds
+
+private fun calculateTargetBlur(
+    isScrolling: Boolean,
+    delta: Int,
+    isSynced: Boolean,
+    stepBlur: Dp,
+    maxBlur: Dp
+): Dp {
+    return if (isScrolling || delta == 0 || !isSynced) {
+        0.dp
+    } else {
+        minOf(maxBlur, stepBlur * delta)
+    }
+}
+
+@Composable
+private fun rememberAnimatedBlur(
+    lazyListState: LazyListState,
+    currentIndex: Int,
+    activeIndex: Int,
+    isSynced: Boolean,
+    stepBlur: Dp,
+    maxBlur: Dp,
+    animationSpec: AnimationSpec<Dp>
+): Dp {
+    val isScrolling = lazyListState.isScrollInProgress
+    val delta = abs(currentIndex - activeIndex)
+    val targetBlur = calculateTargetBlur(
+        isScrolling = isScrolling,
+        delta = delta,
+        isSynced = isSynced,
+        stepBlur = stepBlur,
+        maxBlur = maxBlur
+    )
+
+    val animatedBlur by animateDpAsState(
+        targetValue = targetBlur,
+        animationSpec = animationSpec,
+        label = "blur"
+    )
+
+    return animatedBlur
+}
 
 private sealed class LyricsContent {
     data class Standard(val lines: List<LyricsEntry>) : LyricsContent()
@@ -472,6 +521,10 @@ fun Lyrics(
     }
 
     val isSynced = lyricsContent is LyricsContent.Standard && lyrics?.startsWith("[") == true || lyricsContent is LyricsContent.Hierarchical
+
+    val stepBlur = 3.dp
+    val maxBlur = 15.dp
+    val blurAnimationSpec = tween<Dp>(400)
 
     // Use Material 3 expressive accents and keep glow/text colors unified
     val expressiveAccent = when (playerBackground) {
@@ -844,9 +897,20 @@ fun Lyrics(
                         val isActiveLine = activeLineIndices.contains(index)
                         val isSelected = selectedIndices.contains(index)
 
+                        val animatedBlur = rememberAnimatedBlur(
+                            lazyListState = lazyListState,
+                            currentIndex = index,
+                            activeIndex = activeLineIndices.maxOrNull() ?: index,
+                            isSynced = true, // Hierarchical is always synced
+                            stepBlur = stepBlur,
+                            maxBlur = maxBlur,
+                            animationSpec = blurAnimationSpec
+                        )
+
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .blur(radius = animatedBlur)
                                 .clip(RoundedCornerShape(8.dp))
                                 .combinedClickable(
                                     enabled = true,
@@ -1031,10 +1095,22 @@ fun Lyrics(
                         animationSpec = tween(durationMillis = 400)
                     )
 
+                    val animatedBlur = rememberAnimatedBlur(
+                        lazyListState = lazyListState,
+                        currentIndex = index,
+                        activeIndex = displayedCurrentLineIndex,
+                        isSynced = isSynced,
+                        stepBlur = stepBlur,
+                        maxBlur = maxBlur,
+                        animationSpec = blurAnimationSpec
+                    )
+
                     Column(
-                        modifier = itemModifier.graphicsLayer {
-                            this.alpha = alpha
-                            this.scaleX = scale
+                        modifier = itemModifier
+                            .blur(radius = animatedBlur)
+                            .graphicsLayer {
+                                this.alpha = alpha
+                                this.scaleX = scale
                             this.scaleY = scale
                         },
                         horizontalAlignment = when (lyricsTextPosition) {
