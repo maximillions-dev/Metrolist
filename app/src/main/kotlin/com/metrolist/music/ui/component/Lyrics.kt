@@ -193,35 +193,49 @@ import kotlin.time.Duration.Companion.seconds
 
 private fun calculateTargetBlur(
     isScrolling: Boolean,
-    delta: Int,
+    currentIndex: Int,
+    activeLineIndices: Set<Int>,
+    focalPoint: Int,
     isSynced: Boolean,
     stepBlur: Dp,
     maxBlur: Dp
 ): Dp {
-    return if (isScrolling || delta == 0 || !isSynced) {
-        0.dp
-    } else {
-        minOf(maxBlur, stepBlur * delta)
+    if (isScrolling) {
+        return 0.dp
     }
+
+    if (activeLineIndices.contains(currentIndex)) {
+        return 0.dp
+    }
+
+    val delta = if (activeLineIndices.isNotEmpty()) {
+        activeLineIndices.minOf { activeIndex -> abs(currentIndex - activeIndex) }
+    } else {
+        abs(currentIndex - focalPoint)
+    }
+
+    return if (delta == 0) 0.dp else minOf(maxBlur, stepBlur * delta)
 }
 
 @Composable
 private fun rememberAnimatedBlur(
     lazyListState: LazyListState,
     currentIndex: Int,
-    activeIndex: Int,
+    activeLineIndices: Set<Int>,
+    blurFocalPoint: Int,
     isSynced: Boolean,
     stepBlur: Dp,
     maxBlur: Dp,
     animationSpec: AnimationSpec<Dp>,
-    isAnimating: Boolean // Add this parameter
+    isAnimating: Boolean
 ): Dp {
-    // Distinguish between user scroll and auto-scroll (animation)
     val isUserScrolling = lazyListState.isScrollInProgress && !isAnimating
-    val delta = abs(currentIndex - activeIndex)
+
     val targetBlur = calculateTargetBlur(
-        isScrolling = isUserScrolling, // Use the new state here
-        delta = delta,
+        isScrolling = isUserScrolling,
+        currentIndex = currentIndex,
+        activeLineIndices = activeLineIndices,
+        focalPoint = blurFocalPoint,
         isSynced = isSynced,
         stepBlur = stepBlur,
         maxBlur = maxBlur
@@ -909,7 +923,8 @@ fun Lyrics(
                         val animatedBlur = rememberAnimatedBlur(
                             lazyListState = lazyListState,
                             currentIndex = index,
-                            activeIndex = activeLineIndices.maxOrNull() ?: blurFocalPoint,
+                            activeLineIndices = activeLineIndices,
+                            blurFocalPoint = blurFocalPoint,
                             isSynced = true, // Hierarchical is always synced
                             stepBlur = stepBlur,
                             maxBlur = maxBlur,
@@ -1108,7 +1123,8 @@ fun Lyrics(
                     val animatedBlur = rememberAnimatedBlur(
                         lazyListState = lazyListState,
                         currentIndex = index,
-                        activeIndex = if (displayedCurrentLineIndex != -1) displayedCurrentLineIndex else blurFocalPoint,
+                        activeLineIndices = if (displayedCurrentLineIndex != -1) setOf(displayedCurrentLineIndex) else emptySet(),
+                        blurFocalPoint = blurFocalPoint,
                         isSynced = isSynced,
                         stepBlur = stepBlur,
                         maxBlur = maxBlur,
