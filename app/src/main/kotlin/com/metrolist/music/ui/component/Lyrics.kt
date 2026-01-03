@@ -112,6 +112,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -555,6 +556,18 @@ fun Lyrics(
 
     var activeLineIndices by remember { mutableStateOf(emptySet<Int>()) }
     val currentLineIndex = remember(activeLineIndices) { activeLineIndices.maxOrNull() ?: -1 }
+    val scrollTargetMinIndex = remember(activeLineIndices) { activeLineIndices.minOrNull() ?: -1 }
+    val scrollTargetMaxIndex = remember(activeLineIndices) { activeLineIndices.maxOrNull() ?: -1 }
+    val midpointIndex = remember(activeLineIndices) {
+        val min = activeLineIndices.minOrNull()
+        val max = activeLineIndices.maxOrNull()
+        if (min != null && max != null) {
+            ((min.toFloat() + max.toFloat()) / 2f).roundToInt()
+        } else {
+            -1
+        }
+    }
+
     var currentPlaybackPosition by remember {
         mutableLongStateOf(0L)
     }
@@ -564,9 +577,8 @@ fun Lyrics(
         mutableIntStateOf(0)
     }
 
-    var previousLineIndex by rememberSaveable {
-        mutableIntStateOf(-1)
-    }
+    var previousScrollTargetMinIndex by rememberSaveable { mutableIntStateOf(-1) }
+    var previousScrollTargetMaxIndex by rememberSaveable { mutableIntStateOf(-1) }
 
     var lastPreviewTime by rememberSaveable {
         mutableLongStateOf(0L)
@@ -667,9 +679,9 @@ fun Lyrics(
         selectedIndices.clear()
     }
 
-    LaunchedEffect(currentLineIndex) {
-        if (currentLineIndex != -1) {
-            blurFocalPoint = currentLineIndex
+    LaunchedEffect(midpointIndex) {
+        if (midpointIndex != -1) {
+            blurFocalPoint = midpointIndex
         }
     }
 
@@ -716,98 +728,98 @@ fun Lyrics(
         }
     }
 
-    suspend fun performSmoothPageScroll(targetIndex: Int, duration: Int = 1500) {
-        if (isAnimating) return // Prevent multiple animations
+    suspend fun performSmoothPageScroll(minIndex: Int, maxIndex: Int, duration: Int = 1500) {
+        if (isAnimating) return
         isAnimating = true
         try {
-            val itemInfo = lazyListState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
-            if (itemInfo != null) {
-                // Item is visible, animate directly to center without sudden jumps
+            val minItemInfo = lazyListState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == minIndex }
+            val maxItemInfo = lazyListState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == maxIndex }
+
+            if (minItemInfo != null && maxItemInfo != null) {
+                // Both items are visible. We can calculate the true midpoint.
+                val groupTop = minItemInfo.offset
+                val groupBottom = maxItemInfo.offset + maxItemInfo.size
+                val groupCenter = groupTop + (groupBottom - groupTop) / 2
+
                 val viewportHeight = lazyListState.layoutInfo.viewportEndOffset - lazyListState.layoutInfo.viewportStartOffset
-                val center = lazyListState.layoutInfo.viewportStartOffset + (viewportHeight / 2)
-                val itemCenter = itemInfo.offset + itemInfo.size / 2
-                val offset = itemCenter - center
-                if (kotlin.math.abs(offset) > 10) {
+                val anchor = lazyListState.layoutInfo.viewportStartOffset + (viewportHeight * 0.35f)
+                val offset = groupCenter - anchor
+
+                if (abs(offset) > 1f) {
                     lazyListState.animateScrollBy(
-                        value = offset.toFloat(),
+                        value = offset,
                         animationSpec = tween(durationMillis = duration)
                     )
                 }
             } else {
-                // Item is not visible, scroll to it first without animation, then it will be handled in next cycle
-                lazyListState.scrollToItem(targetIndex)
+                // One or both items are not visible. We scroll to the midpoint index to bring them into view.
+                val midpointIndex = ((minIndex.toFloat() + maxIndex.toFloat()) / 2f).roundToInt()
+                lazyListState.scrollToItem(midpointIndex)
             }
         } finally {
             isAnimating = false
         }
     }
-    LaunchedEffect(currentLineIndex, lastPreviewTime, initialScrollDone, isAutoScrollEnabled) {
+    LaunchedEffect(scrollTargetMinIndex, scrollTargetMaxIndex, lastPreviewTime, initialScrollDone, isAutoScrollEnabled) {
         if (!isSynced || !isAutoScrollEnabled) return@LaunchedEffect
 
-        // Logic for Hierarchical (Apple Music Enhanced) lyrics
         if (lyricsContent is LyricsContent.Hierarchical) {
-            if (currentLineIndex == -1) return@LaunchedEffect
+            if (scrollTargetMinIndex == -1) return@LaunchedEffect
 
-            // Only scroll if the main line has changed
-            if (currentLineIndex != previousLineIndex) {
+            if (scrollTargetMinIndex != previousScrollTargetMinIndex || scrollTargetMaxIndex != previousScrollTargetMaxIndex) {
                 val lines = lyricsContent.lines
-                val previousLine = lines.getOrNull(previousLineIndex)
-                val currentLine = lines.getOrNull(currentLineIndex)
+                val previousLine = lines.getOrNull(previousScrollTargetMaxIndex)
+                val currentLine = lines.getOrNull(scrollTargetMinIndex)
 
-                // Initial Scroll
-                if (previousLineIndex == -1 && currentLine != null) {
-                    performSmoothPageScroll(currentLineIndex, 800)
-                }
-                // Subsequent Scrolls
-                else if (previousLine != null && currentLine != null) {
+                if (previousScrollTargetMinIndex == -1 && currentLine != null) {
+                    performSmoothPageScroll(scrollTargetMinIndex, scrollTargetMaxIndex, 800)
+                } else if (previousLine != null && currentLine != null) {
                     val previousLineEndTimeMs = (previousLine.endTime * 1000).toLong()
                     val scrollThresholdTimeMs = (currentLine.startTime * 1000).toLong() + 200
-
                     val scheduledScrollTimeMs = maxOf(previousLineEndTimeMs, scrollThresholdTimeMs)
-
                     val delayDuration = scheduledScrollTimeMs - currentPlaybackPosition
                     if (delayDuration > 0) {
                         delay(delayDuration)
                     }
 
-                    // Before scrolling, confirm this is still the correct target.
-                    // Another line might have become active during the delay.
-                    if (isActive && currentLineIndex == activeLineIndices.maxOrNull()) {
-                        performSmoothPageScroll(currentLineIndex, 1500)
+                    val originalMin = scrollTargetMinIndex
+                    val originalMax = scrollTargetMaxIndex
+                    val currentMinAfterDelay = activeLineIndices.minOrNull() ?: -1
+                    val currentMaxAfterDelay = activeLineIndices.maxOrNull() ?: -1
+                    if (isActive && originalMin == currentMinAfterDelay && originalMax == currentMaxAfterDelay) {
+                        performSmoothPageScroll(originalMin, originalMax, 1500)
                     }
                 }
-                previousLineIndex = currentLineIndex
+                previousScrollTargetMinIndex = scrollTargetMinIndex
+                previousScrollTargetMaxIndex = scrollTargetMaxIndex
             }
-        }
-        // Logic for Standard lyrics
-        else {
-            if ((currentLineIndex == 0 && shouldScrollToFirstLine) || !initialScrollDone) {
+        } else {
+            // Standard lyrics only have one active line, so min=max=midpoint
+            if (midpointIndex == -1) return@LaunchedEffect
+            val previousMidpointIndex = ((previousScrollTargetMinIndex.toFloat() + previousScrollTargetMaxIndex.toFloat()) / 2f).roundToInt()
+
+            if ((midpointIndex == 0 && shouldScrollToFirstLine) || !initialScrollDone) {
                 shouldScrollToFirstLine = false
-                // Initial scroll to center the first line with medium animation (600ms)
-                val initialCenterIndex = kotlin.math.max(0, currentLineIndex)
-                performSmoothPageScroll(initialCenterIndex, 800) // Initial scroll duration
+                performSmoothPageScroll(midpointIndex, midpointIndex, 800)
                 if (!isAppMinimized) {
                     initialScrollDone = true
                 }
-            } else if (currentLineIndex != -1) {
-                deferredCurrentLineIndex = currentLineIndex
+            } else {
+                deferredCurrentLineIndex = midpointIndex
                 if (isSeeking) {
-                    // Fast scroll for seeking to center the target line (300ms)
-                    val seekCenterIndex = kotlin.math.max(0, currentLineIndex - 1)
-                    performSmoothPageScroll(seekCenterIndex, 500) // Fast seek duration
-                } else if ((lastPreviewTime == 0L || currentLineIndex != previousLineIndex) && scrollLyrics) {
-                    // Auto-scroll when lyrics settings allow it
-                    if (currentLineIndex != previousLineIndex) {
-                        // Calculate which line should be at the top to center the active group
-                        val centerTargetIndex = currentLineIndex
-                        performSmoothPageScroll(centerTargetIndex, 1500) // Auto scroll duration
+                    val seekCenterIndex = kotlin.math.max(0, midpointIndex - 1)
+                    performSmoothPageScroll(seekCenterIndex, seekCenterIndex, 500)
+                } else if ((lastPreviewTime == 0L || midpointIndex != previousMidpointIndex) && scrollLyrics) {
+                    if (midpointIndex != previousMidpointIndex) {
+                        performSmoothPageScroll(midpointIndex, midpointIndex, 1500)
                     }
                 }
             }
-            if (currentLineIndex > 0) {
+            if (midpointIndex > 0) {
                 shouldScrollToFirstLine = true
             }
-            previousLineIndex = currentLineIndex
+            previousScrollTargetMinIndex = scrollTargetMinIndex
+            previousScrollTargetMaxIndex = scrollTargetMaxIndex
         }
     }
 
