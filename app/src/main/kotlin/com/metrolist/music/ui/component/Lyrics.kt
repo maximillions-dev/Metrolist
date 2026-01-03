@@ -212,12 +212,14 @@ private fun rememberAnimatedBlur(
     isSynced: Boolean,
     stepBlur: Dp,
     maxBlur: Dp,
-    animationSpec: AnimationSpec<Dp>
+    animationSpec: AnimationSpec<Dp>,
+    isAnimating: Boolean // Add this parameter
 ): Dp {
-    val isScrolling = lazyListState.isScrollInProgress
+    // Distinguish between user scroll and auto-scroll (animation)
+    val isUserScrolling = lazyListState.isScrollInProgress && !isAnimating
     val delta = abs(currentIndex - activeIndex)
     val targetBlur = calculateTargetBlur(
-        isScrolling = isScrolling,
+        isScrolling = isUserScrolling, // Use the new state here
         delta = delta,
         isSynced = isSynced,
         stepBlur = stepBlur,
@@ -902,7 +904,8 @@ fun Lyrics(
                             isSynced = true, // Hierarchical is always synced
                             stepBlur = stepBlur,
                             maxBlur = maxBlur,
-                            animationSpec = blurAnimationSpec
+                            animationSpec = blurAnimationSpec,
+                            isAnimating = isAnimating
                         )
 
                         Box(
@@ -1100,7 +1103,8 @@ fun Lyrics(
                         isSynced = isSynced,
                         stepBlur = stepBlur,
                         maxBlur = maxBlur,
-                        animationSpec = blurAnimationSpec
+                        animationSpec = blurAnimationSpec,
+                        isAnimating = isAnimating
                     )
 
                     Column(
