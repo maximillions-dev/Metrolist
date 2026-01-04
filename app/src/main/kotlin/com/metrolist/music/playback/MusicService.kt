@@ -147,7 +147,7 @@ import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.playback.queues.filterExplicit
 import com.metrolist.music.playback.queues.filterVideoSongs
 import com.metrolist.music.utils.CoilBitmapLoader
-import com.metrolist.music.utils.DiscordRPC
+import com.metrolist.music.utils.DiscordRPCManager
 import com.metrolist.music.utils.NetworkConnectivityObserver
 import com.metrolist.music.utils.ScrobbleManager
 import com.metrolist.music.utils.SyncUtils
@@ -170,6 +170,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -260,9 +261,8 @@ class MusicService :
     private var isAudioEffectSessionOpened = false
     private var loudnessEnhancer: LoudnessEnhancer? = null
 
-    private var discordRpc: DiscordRPC? = null
+    private lateinit var discordRpcManager: DiscordRPCManager
     private var lastPlaybackSpeed = 1.0f
-    private var discordUpdateJob: kotlinx.coroutines.Job? = null
 
     private var scrobbleManager: ScrobbleManager? = null
 
@@ -385,6 +385,8 @@ class MusicService :
         // Initialize Google Cast
         initializeCast()
 
+        discordRpcManager = DiscordRPCManager(this) { player.currentPosition }
+
         // 4. Watch for EQ profile changes
         scope.launch {
             eqProfileRepository.activeProfile.collect { profile ->
@@ -413,10 +415,8 @@ class MusicService :
                 if (isConnected && waitingForNetworkConnection.value) {
                     triggerRetry()
                 }
-                if (isConnected && discordRpc != null && player.isPlaying) {
-                    currentSong.value?.let { song ->
-                        discordRpc?.updateSong(song, player.currentPosition, player.playbackParameters.speed, dataStore.get(DiscordUseDetailsKey, false))
-                    }
+                if (isConnected) {
+                    discordRpcManager.forceUpdate()
                 }
             }
         }
@@ -431,13 +431,25 @@ class MusicService :
             }
         }
 
-        currentSong.debounce(1000).collect(scope) { song ->
+        currentSong.debounce(1000).collectLatest(scope) { song ->
             updateNotification()
             updateWidgetUI(player.isPlaying)
-            if (song != null && player.playWhenReady && player.playbackState == Player.STATE_READY) {
-                discordRpc?.updateSong(song, player.currentPosition, player.playbackParameters.speed, dataStore.get(DiscordUseDetailsKey, false))
+            if (song == null) {
+                // If song is not in the database, it might be a downloaded track whose metadata
+                // hasn't been synced yet. Let's try to recover it.
+                val mediaId = player.currentMediaItem?.mediaId
+                if (mediaId != null) {
+                    scope.launch(Dispatchers.IO) {
+                        recoverSong(mediaId)
+                        // After recovery, fetch the song again and update the RPC manager
+                        val recoveredSong = database.song(mediaId).firstOrNull()
+                        discordRpcManager.onSongChanged(recoveredSong)
+                    }
+                } else {
+                    discordRpcManager.onSongChanged(null)
+                }
             } else {
-                discordRpc?.closeRPC()
+                discordRpcManager.onSongChanged(song)
             }
         }
 
@@ -477,42 +489,6 @@ class MusicService :
         ) { format, normalizeAudio ->
             format to normalizeAudio
         }.collectLatest(scope) { (format, normalizeAudio) -> setupLoudnessEnhancer()}
-
-        dataStore.data
-            .map { it[DiscordTokenKey] to (it[EnableDiscordRPCKey] ?: true) }
-            .debounce(300)
-            .distinctUntilChanged()
-            .collect(scope) { (key, enabled) ->
-                if (discordRpc?.isRpcRunning() == true) {
-                    discordRpc?.closeRPC()
-                }
-                discordRpc = null
-                if (key != null && enabled) {
-                    discordRpc = DiscordRPC(this, key)
-                    if (player.playbackState == Player.STATE_READY && player.playWhenReady) {
-                        currentSong.value?.let {
-                            discordRpc?.updateSong(it, player.currentPosition, player.playbackParameters.speed, dataStore.get(DiscordUseDetailsKey, false))
-                        }
-                    }
-                }
-            }
-
-        // details key stuff
-        dataStore.data
-            .map { it[DiscordUseDetailsKey] ?: false }
-            .debounce(1000)
-            .distinctUntilChanged()
-            .collect(scope) { useDetails ->
-                if (player.playbackState == Player.STATE_READY && player.playWhenReady) {
-                    currentSong.value?.let { song ->
-                        discordUpdateJob?.cancel()
-                        discordUpdateJob = scope.launch {
-                            delay(1000)
-                            discordRpc?.updateSong(song, player.currentPosition, player.playbackParameters.speed, useDetails)
-                        }
-                    }
-                }
-            }
 
         dataStore.data
             .map { it[EnableLastFMScrobblingKey] ?: false }
@@ -1369,8 +1345,6 @@ class MusicService :
 
         setupLoudnessEnhancer()
 
-        discordUpdateJob?.cancel()
-
         scrobbleManager?.onSongStop()
         if (player.playWhenReady && player.playbackState == Player.STATE_READY) {
             scrobbleManager?.onSongStart(player.currentMetadata, duration = player.duration)
@@ -1475,23 +1449,9 @@ class MusicService :
         }
 
         // Discord RPC updates
-
-        // Update the Discord RPC activity if the player is playing
         if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED)) {
             updateWidgetUI(player.isPlaying)
-            if (player.isPlaying) {
-                currentSong.value?.let { song ->
-                    scope.launch {
-                        discordRpc?.updateSong(song, player.currentPosition, player.playbackParameters.speed, dataStore.get(DiscordUseDetailsKey, false))
-                    }
-                }
-            }
-            // Send empty activity to the Discord RPC if the player is not playing
-            else if (!events.containsAny(Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_MEDIA_ITEM_TRANSITION)){
-                scope.launch {
-                    discordRpc?.close()
-                }
-            }
+            discordRpcManager.onPlaybackStateChanged(player.isPlaying)
         }
 
         // Scrobbling
@@ -1574,17 +1534,7 @@ class MusicService :
         super.onPlaybackParametersChanged(playbackParameters)
         if (playbackParameters.speed != lastPlaybackSpeed) {
             lastPlaybackSpeed = playbackParameters.speed
-            discordUpdateJob?.cancel()
-
-            // update scheduling thingy
-            discordUpdateJob = scope.launch {
-                delay(1000)
-                if (player.playWhenReady && player.playbackState == Player.STATE_READY) {
-                    currentSong.value?.let { song ->
-                        discordRpc?.updateSong(song, player.currentPosition, playbackParameters.speed, dataStore.get(DiscordUseDetailsKey, false))
-                    }
-                }
-            }
+            discordRpcManager.onSpeedChanged(playbackParameters.speed)
         }
     }
 
@@ -1890,10 +1840,7 @@ class MusicService :
         if (dataStore.get(PersistentQueueKey, true)) {
             saveQueueToDisk()
         }
-        if (discordRpc?.isRpcRunning() == true) {
-            discordRpc?.closeRPC()
-        }
-        discordRpc = null
+        discordRpcManager.destroy()
         connectivityObserver.unregister()
         abandonAudioFocus()
         releaseLoudnessEnhancer()
@@ -1901,7 +1848,6 @@ class MusicService :
         player.removeListener(this)
         player.removeListener(sleepTimer)
         player.release()
-        discordUpdateJob?.cancel()
         super.onDestroy()
     }
 
