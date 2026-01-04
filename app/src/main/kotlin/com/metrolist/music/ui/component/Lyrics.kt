@@ -215,7 +215,17 @@ private fun calculateTargetBlur(
         abs(currentIndex - focalPoint)
     }
 
-    return if (delta == 0) 0.dp else minOf(maxBlur, stepBlur * delta)
+    if (delta == 0) return 0.dp
+    
+    // Use exponential falloff for smoother blur transition
+    // This prevents the "square" artifact by creating a more natural blur gradient
+    val linearBlur = (stepBlur * delta).coerceAtMost(maxBlur)
+    val normalizedDistance = (linearBlur.value / maxBlur.value).coerceIn(0f, 1f)
+    
+    // Apply ease-out curve for smoother transition
+    val easedDistance = 1f - (1f - normalizedDistance) * (1f - normalizedDistance)
+    
+    return (maxBlur.value * easedDistance).dp
 }
 
 @Composable
@@ -284,7 +294,7 @@ fun HierarchicalLyricsLine(
         color = Color.Transparent, // Prevent redundant draw, drawing is handled in drawWithCache
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 8.dp)
+            .padding(horizontal = 24.dp, vertical = 12.dp) // Increased vertical padding to prevent descender clipping
             .drawWithCache {
                 val measuredText = textMeasurer.measure(
                     text = AnnotatedString(line.text),
@@ -932,17 +942,22 @@ fun Lyrics(
                         val isActiveLine = activeLineIndices.contains(index)
                         val isSelected = selectedIndices.contains(index)
 
-                        val animatedBlur = rememberAnimatedBlur(
-                            lazyListState = lazyListState,
-                            currentIndex = index,
-                            activeLineIndices = activeLineIndices,
-                            blurFocalPoint = blurFocalPoint,
-                            isSynced = true, // Hierarchical is always synced
-                            stepBlur = stepBlur,
-                            maxBlur = maxBlur,
-                            animationSpec = blurAnimationSpec,
-                            isAnimating = isAnimating
-                        )
+                        // Only apply blur for Apple Music (Enhanced) style
+                        val animatedBlur = if (lyricsAnimationStyle == LyricsAnimationStyle.APPLE_ENHANCED) {
+                            rememberAnimatedBlur(
+                                lazyListState = lazyListState,
+                                currentIndex = index,
+                                activeLineIndices = activeLineIndices,
+                                blurFocalPoint = blurFocalPoint,
+                                isSynced = true, // Hierarchical is always synced
+                                stepBlur = stepBlur,
+                                maxBlur = maxBlur,
+                                animationSpec = blurAnimationSpec,
+                                isAnimating = isAnimating
+                            )
+                        } else {
+                            0.dp
+                        }
 
                         Box(
                             modifier = Modifier
@@ -1132,21 +1147,9 @@ fun Lyrics(
                         animationSpec = tween(durationMillis = 400)
                     )
 
-                    val animatedBlur = rememberAnimatedBlur(
-                        lazyListState = lazyListState,
-                        currentIndex = index,
-                        activeLineIndices = if (displayedCurrentLineIndex != -1) setOf(displayedCurrentLineIndex) else emptySet(),
-                        blurFocalPoint = blurFocalPoint,
-                        isSynced = isSynced,
-                        stepBlur = stepBlur,
-                        maxBlur = maxBlur,
-                        animationSpec = blurAnimationSpec,
-                        isAnimating = isAnimating
-                    )
-
+                    // Standard lyrics should not have blur effect
                     Column(
                         modifier = itemModifier
-                            .blur(radius = animatedBlur)
                             .graphicsLayer {
                                 this.alpha = alpha
                                 this.scaleX = scale
