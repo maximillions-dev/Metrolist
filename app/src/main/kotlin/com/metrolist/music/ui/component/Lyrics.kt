@@ -304,25 +304,32 @@ fun HierarchicalLyricsLine(
         if (isActive && activeWord != null && lyricsGlowEffect && activeWord.glowStrength > 0) {
             val durationMillis = ((activeWord.endTime - activeWord.startTime) * 1000).toLong()
             if (durationMillis > 0) {
-                // Animate up to the peak glow towards the end of the word's duration
+                                // 1. Quick Start
                 glowAnimatable.animateTo(
-                    targetValue = activeWord.glowStrength * 30f, // Max blur radius
+                                    targetValue = activeWord.glowStrength * 15f, // 50% of max
+                                    animationSpec = tween(
+                                        durationMillis = (durationMillis * 0.2).toInt(),
+                                        easing = FastOutSlowInEasing
+                                    )
+                                )
+                                // 2. Sustained Glow
+                                glowAnimatable.animateTo(
+                                    targetValue = activeWord.glowStrength * 30f, // 100% of max
                     animationSpec = tween(
-                        durationMillis = (durationMillis * 0.9).toInt(),
+                                        durationMillis = (durationMillis * 0.6).toInt(),
                         easing = LinearEasing
                     )
                 )
-                // Fade out the glow quickly
+                                // 3. Graceful Fade-Out
                 glowAnimatable.animateTo(
                     targetValue = 0f,
                     animationSpec = tween(
-                        durationMillis = (durationMillis * 0.1).toInt(),
+                                        durationMillis = (durationMillis * 0.2).toInt(),
                         easing = FastOutSlowInEasing
                     )
                 )
             }
         } else {
-            // Word is not active, not glowing, or effect is disabled, snap glow to 0.
             glowAnimatable.snapTo(0f)
         }
     }
@@ -332,6 +339,7 @@ fun HierarchicalLyricsLine(
         style = textStyle,
         color = Color.Transparent, // Prevent redundant draw, drawing is handled in drawWithCache
         modifier = Modifier
+            .graphicsLayer()
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 12.dp) // Increased vertical padding to prevent descender clipping
             .drawWithCache {
