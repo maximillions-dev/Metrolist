@@ -14,7 +14,8 @@ sealed class SpeakerRole {
 data class Word(
     val text: String,
     val startTime: Float,
-    val endTime: Float
+    val endTime: Float,
+    val glowStrength: Float = 0f
 )
 
 data class LyricLine(
