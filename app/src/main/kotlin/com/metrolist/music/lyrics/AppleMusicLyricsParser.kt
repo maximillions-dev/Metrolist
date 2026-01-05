@@ -12,8 +12,7 @@ object AppleMusicLyricsParser {
 
     private object GlowProcessor {
         private const val LONG_WORD_GLOW_THRESHOLD = 1.2f
-        private const val ACCUMULATED_GLOW_THRESHOLD = 1.2f
-        private const val GLOW_SCORE_THRESHOLD = 1.5f
+        private const val GLOW_SCORE_THRESHOLD = 1.2f // Lowered threshold for more sensitivity
 
         fun processAndAssignGlow(originalWords: List<Word>): List<Word> {
             val newWords = mutableListOf<Word>()
@@ -22,49 +21,58 @@ object AppleMusicLyricsParser {
             for (i in originalWords.indices) {
                 if (i in processedIndices) continue
 
-                // Check for multi-part "accumulated glow" words first.
-                // A multi-part word is a sequence of words where each one except the last ends with a hyphen.
-                if (i < originalWords.size - 1 && originalWords[i].text.endsWith('-')) {
-                    val conceptualParts = mutableListOf(originalWords[i])
-                    var k = i + 1
-                    while (k < originalWords.size) {
-                        conceptualParts.add(originalWords[k])
-                        if (!originalWords[k-1].text.endsWith('-')) break // Previous word didn't have a hyphen, sequence is broken.
-                        if (!originalWords[k].text.endsWith('-')) break // Current word doesn't have a hyphen, this is the end of the sequence.
-                        k++
-                    }
+                val currentWord = originalWords[i]
+                val conceptualParts = mutableListOf(currentWord)
 
-                    // A valid conceptual word must end with a non-hyphenated part.
-                    if (conceptualParts.size > 1 && !conceptualParts.last().text.endsWith('-')) {
-                        val conceptualText = conceptualParts.joinToString("") { it.text }
-                        if (conceptualText.count { it == '-' } >= 2) {
-                            val longestPart = conceptualParts.maxByOrNull { it.endTime - it.startTime }
-                            if (longestPart != null && (longestPart.endTime - longestPart.startTime) >= ACCUMULATED_GLOW_THRESHOLD) {
-                                // This conceptual word qualifies for an accumulated glow.
-                                val totalStrength = conceptualParts.sumOf { if (it == longestPart) 0.50 else 0.25 }.toFloat()
-                                conceptualParts.forEach { part ->
-                                    newWords.add(part.copy(glowStrength = if (part == longestPart) totalStrength else 0f))
-                                    processedIndices.add(originalWords.indexOf(part))
-                                }
-                                continue // Continue to the next unprocessed word in the main loop.
-                            }
+                // Group words that are not separated by a space into a "conceptual word"
+                if (!currentWord.text.endsWith(" ") && i < originalWords.size - 1) {
+                    for (j in i + 1 until originalWords.size) {
+                        val nextWord = originalWords[j]
+                        conceptualParts.add(nextWord)
+                        if (nextWord.text.endsWith(" ")) {
+                            break // End of conceptual word
                         }
                     }
                 }
 
-                // If not part of a processed accumulated glow, handle as a single word.
-                val word = originalWords[i]
-                val duration = word.endTime - word.startTime
-                var strength = 0f
-                if (duration >= LONG_WORD_GLOW_THRESHOLD) {
-                    val score = (word.text.trim().length / 10.0f) + (duration / 2.0f)
-                    if (score > GLOW_SCORE_THRESHOLD) {
-                        // Scale the glow strength based on how much the score exceeds the threshold.
-                        strength = ((score - GLOW_SCORE_THRESHOLD) * 0.4f).coerceIn(0f, 1.0f)
+                // Now, process the conceptual word (which might be just a single word)
+                processedIndices.addAll(conceptualParts.map { originalWords.indexOf(it) })
+
+                val conceptualText = conceptualParts.joinToString("") { it.text }.trim()
+                val conceptualStartTime = conceptualParts.first().startTime
+                val conceptualEndTime = conceptualParts.last().endTime
+                val conceptualDuration = conceptualEndTime - conceptualStartTime
+
+                var glowStrength = 0f
+                var glowingPart: Word? = null
+
+                // First, check for hyphenated "accumulated glow"
+                if (conceptualText.count { it == '-' } >= 2) {
+                    val longestPart = conceptualParts.maxByOrNull { it.endTime - it.startTime }
+                    if (longestPart != null) {
+                         val longestPartDuration = longestPart.endTime - longestPart.startTime
+                         if (longestPartDuration >= LONG_WORD_GLOW_THRESHOLD) { // Use same threshold
+                            glowStrength = conceptualParts.sumOf { if (it == longestPart) 0.50 else 0.25 }.toFloat()
+                            glowingPart = longestPart
+                         }
                     }
                 }
-                newWords.add(word.copy(glowStrength = strength))
-                processedIndices.add(i)
+
+                // If not an accumulated glow, check for "long word glow"
+                if (glowStrength == 0f && conceptualDuration >= LONG_WORD_GLOW_THRESHOLD) {
+                    // New formula with more weight on duration
+                    val score = (conceptualText.length / 15.0f) + (conceptualDuration / 1.5f)
+                    if (score > GLOW_SCORE_THRESHOLD) {
+                        glowStrength = ((score - GLOW_SCORE_THRESHOLD) * 0.5f).coerceIn(0f, 1.0f)
+                        // The glow applies to the longest part of the conceptual word
+                        glowingPart = conceptualParts.maxByOrNull { it.endTime - it.startTime }
+                    }
+                }
+
+                // Add the processed parts to the new word list
+                conceptualParts.forEach { part ->
+                    newWords.add(part.copy(glowStrength = if (part == glowingPart) glowStrength else 0f))
+                }
             }
             return newWords
         }
