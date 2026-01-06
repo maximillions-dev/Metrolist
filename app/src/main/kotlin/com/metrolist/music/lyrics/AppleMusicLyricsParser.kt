@@ -15,26 +15,23 @@ object AppleMusicLyricsParser {
 
         fun processAndAssignGlow(originalWords: List<Word>): List<Word> {
             val newWords = mutableListOf<Word>()
-            val processedIndices = mutableSetOf<Int>()
-
-            for (i in originalWords.indices) {
-                if (i in processedIndices) continue
-
+            var i = 0
+            while (i < originalWords.size) {
                 val currentWord = originalWords[i]
                 val conceptualParts = mutableListOf(currentWord)
 
                 // Group words that are not separated by a space into a "conceptual word"
                 if (!currentWord.text.endsWith(" ") && i < originalWords.size - 1) {
-                    for (j in i + 1 until originalWords.size) {
+                    var j = i + 1
+                    while (j < originalWords.size) {
                         val nextWord = originalWords[j]
                         conceptualParts.add(nextWord)
                         if (nextWord.text.endsWith(" ")) {
                             break // End of conceptual word
                         }
+                        j++
                     }
                 }
-
-                processedIndices.addAll(conceptualParts.map { originalWords.indexOf(it) })
 
                 val conceptualDuration = conceptualParts.last().endTime - conceptualParts.first().startTime
 
@@ -47,10 +44,11 @@ object AppleMusicLyricsParser {
                     glowingPart = conceptualParts.maxByOrNull { it.endTime - it.startTime }
                 }
 
-                // Add the processed parts to the new word list
+                // Add the processed parts to the new word list and advance the index
                 conceptualParts.forEach { part ->
                     newWords.add(part.copy(glowStrength = if (part == glowingPart) glowStrength else 0f))
                 }
+                i += conceptualParts.size
             }
             return newWords
         }
