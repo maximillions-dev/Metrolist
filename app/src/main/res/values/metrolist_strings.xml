@@ -108,7 +108,8 @@
     <string name="primary_color_style">Primary color</string>
     <string name="tertiary_color_style">Tertiary color</string>
     <string name="secondary_color_style">Secondary</string>
-    <string name="enable_squiggly_slider">Enable squiggly slider</string>
+    <string name="enable_wavy_slider">Enable wavy slider</string>
+    <string name="wavy">Wavy</string>
     <string name="enable_swipe_thumbnail">Enable swipe to change song</string>
     <string name="swipe_song_to_add">Swipe song to the left to add it to the queue or to the right to play it next</string>
     <string name="swipe_song_to_remove">Swipe song to remove it from the playlist</string>
@@ -127,8 +128,8 @@
     <string name="show_top_playlist">Show \"Top\" playlist</string>
     <string name="show_cached_playlist">Show \"Cached\" playlist</string>
     <string name="show_uploaded_playlist">Show \"Uploaded\" playlist</string>
-    <string name="shuffle_playlist_first">Shuffle playlist/album prima</string>
-    <string name="shuffle_playlist_first_desc">Durante lo shuffle, riproduci prima tutte le canzoni della playlist/album originale e poi i contenuti simili</string>
+    <string name="shuffle_playlist_first">Shuffle playlist/album first</string>
+    <string name="shuffle_playlist_first_desc">When shuffling, play all songs from the original playlist/album first, then similar content</string>
     <string name="show_wrapped_card">Show Wrapped card</string>
 
     <string name="google">Google</string>
@@ -367,6 +368,27 @@
     <string name="wrapped_create_playlist">Create playlist</string>
     <string name="wrapped_playlist_saved">Playlist saved</string>
 
+    <!-- Equalizer UI -->
+    <plurals name="profiles_count">
+        <item quantity="one">%d Profile</item>
+        <item quantity="other">%d Profiles</item>
+    </plurals>
+    <string name="equalizer_header">Equalizer</string>
+    <string name="no_profiles">No equalizer profiles</string>
+    <string name="import_profile">Import Profile</string>
+    <string name="eq_disabled">Disabled</string>
+    <plurals name="band_count">
+        <item quantity="one">%d band</item>
+        <item quantity="other">%d bands</item>
+    </plurals>
+    <string name="delete_profile_desc">Delete Profile</string>
+    <string name="delete_profile_confirmation">Are you sure you want to delete "%1$s"? This action
+        cannot be undone.
+    </string>
+    <string name="error_file_read">Could not read file</string>
+    <string name="error_file_open">Failed to open file: %1$s</string>
+    <string name="import_error_title">Import Error</string>
+
     <!-- Hardcoded strings -->
     <string name="casting_to">Casting to %s</string>
     <string name="progress_percent">Progress %s%%</string>
@@ -379,4 +401,5 @@
     <string name="copied_artist">Copied Artist</string>
     <string name="error_playing">Error playing</string>
     <string name="failed_to_parse_proxy">Failed to parse proxy url.</string>
+    <string name="enable_squiggly_slider">Enable squiggly slider</string>
 </resources>

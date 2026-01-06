@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.add
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -58,6 +59,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.max
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -77,6 +80,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableLongState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -160,6 +164,7 @@ import com.metrolist.music.ui.screens.settings.DarkMode
 import com.metrolist.music.lyrics.LyricsEntry
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import com.metrolist.music.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
 import com.metrolist.music.lyrics.LyricsUtils.parseLyrics
 import com.metrolist.music.ui.theme.PlayerColorExtractor
@@ -174,7 +179,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import me.saket.squiggles.SquigglySlider
+import com.metrolist.music.ui.component.WavySlider
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -270,12 +275,15 @@ fun BottomSheetPlayer(
     // Use Cast state when casting, otherwise local player
     val effectiveIsPlaying = if (isCasting) castIsPlaying else isPlaying
 
-    var position by rememberSaveable(playbackState) {
-        mutableLongStateOf(playerConnection.player.currentPosition)
-    }
-    var duration by rememberSaveable(playbackState) {
-        mutableLongStateOf(playerConnection.player.duration)
-    }
+    // Use State objects for position/duration to pass to MiniPlayer without causing recomposition
+    // These states persist across playback state changes to ensure continuous progress updates
+    val positionState = remember { mutableLongStateOf(0L) }
+    val durationState = remember { mutableLongStateOf(0L) }
+    
+    // Convenience accessors for local use
+    var position by positionState
+    var duration by durationState
+    
     var sliderPosition by remember {
         mutableStateOf<Long?>(null)
     }
@@ -532,15 +540,24 @@ fun BottomSheetPlayer(
 
     // Position update - only for local playback
     // When casting, we use castPosition directly to avoid sync issues
-    LaunchedEffect(playbackState, isCasting) {
-        if (!isCasting && playbackState == STATE_READY) {
+    // Use isPlaying instead of playbackState to ensure continuous updates during playback
+    LaunchedEffect(isPlaying, isCasting) {
+        if (!isCasting && isPlaying) {
             while (isActive) {
-                delay(500)
+                delay(100) // Update more frequently for smoother progress bar
                 if (sliderPosition == null) { // Only update if user isn't dragging
                     position = playerConnection.player.currentPosition
                     duration = playerConnection.player.duration
                 }
             }
+        }
+    }
+    
+    // Also update position when playback state changes (e.g., song change, seek)
+    LaunchedEffect(playbackState, mediaMetadata?.id) {
+        if (!isCasting) {
+            position = playerConnection.player.currentPosition
+            duration = playerConnection.player.duration
         }
     }
     
@@ -662,8 +679,8 @@ fun BottomSheetPlayer(
         },
         collapsedContent = {
             MiniPlayer(
-                position = position,
-                duration = duration
+                positionState = positionState,
+                durationState = durationState
             )
         },
     ) {
@@ -1071,8 +1088,8 @@ fun BottomSheetPlayer(
                     )
                 }
 
-                SliderStyle.SQUIGGLY -> {
-                    SquigglySlider(
+                SliderStyle.WAVY -> {
+                    WavySlider(
                         value = (sliderPosition ?: position).toFloat(),
                         valueRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat()),
                         onValueChange = {
@@ -1092,12 +1109,7 @@ fun BottomSheetPlayer(
                         },
                         colors = PlayerSliderColors.getSliderColors(textButtonColor, playerBackground, useDarkTheme),
                         modifier = Modifier.padding(horizontal = PlayerHorizontalPadding),
-                        squigglesSpec =
-                        SquigglySlider.SquigglesSpec(
-                            amplitude = if (isPlaying) (4.dp).coerceAtLeast(2.dp) else 0.dp,
-                            strokeWidth = 3.dp,
-                            wavelength = 36.dp,
-                        ),
+                        isPlaying = effectiveIsPlaying
                     )
                 }
 
@@ -1178,17 +1190,36 @@ fun BottomSheetPlayer(
                             val backInteractionSource = remember { MutableInteractionSource() }
                             val nextInteractionSource = remember { MutableInteractionSource() }
                             val playPauseInteractionSource = remember { MutableInteractionSource() }
+
                             val isPlayPausePressed by playPauseInteractionSource.collectIsPressedAsState()
+                            val isBackPressed by backInteractionSource.collectIsPressedAsState()
+                            val isNextPressed by nextInteractionSource.collectIsPressedAsState()
 
                             val playPauseWeight by animateFloatAsState(
-                                targetValue = if (isPlayPausePressed) 1.9f else 1.3f,
-                                animationSpec = spring(),
+                                targetValue = if (isPlayPausePressed) 1.9f else if (isBackPressed || isNextPressed) 1.1f else 1.3f,
+                                animationSpec = spring(
+                                    dampingRatio = 0.6f,
+                                    stiffness = 500f
+                                ),
                                 label = "playPauseWeight"
                             )
-                            val sideButtonWeight by animateFloatAsState(
-                                targetValue = if (isPlayPausePressed) 0.35f else 0.45f,
-                                animationSpec = spring(),
-                                label = "sideButtonWeight"
+
+                            val backButtonWeight by animateFloatAsState(
+                                targetValue = if (isBackPressed) 0.65f else if (isPlayPausePressed) 0.35f else 0.45f,
+                                animationSpec = spring(
+                                    dampingRatio = 0.6f,
+                                    stiffness = 500f
+                                ),
+                                label = "backButtonWeight"
+                            )
+
+                            val nextButtonWeight by animateFloatAsState(
+                                targetValue = if (isNextPressed) 0.65f else if (isPlayPausePressed) 0.35f else 0.45f,
+                                animationSpec = spring(
+                                    dampingRatio = 0.6f,
+                                    stiffness = 500f
+                                ),
+                                label = "nextButtonWeight"
                             )
 
                             FilledIconButton(
@@ -1202,8 +1233,7 @@ fun BottomSheetPlayer(
                                 ),
                                 modifier = Modifier
                                     .height(68.dp)
-                                    .weight(sideButtonWeight)
-                                    .bouncy(backInteractionSource)
+                                    .weight(backButtonWeight)
                             ) {
                                 Icon(
                                     painter = painterResource(R.drawable.skip_previous),
@@ -1271,8 +1301,7 @@ fun BottomSheetPlayer(
                                 ),
                                 modifier = Modifier
                                     .height(68.dp)
-                                    .weight(sideButtonWeight)
-                                    .bouncy(nextInteractionSource)
+                                    .weight(nextButtonWeight)
                             ) {
                                 Icon(
                                     painter = painterResource(R.drawable.skip_next),
@@ -1401,24 +1430,33 @@ fun BottomSheetPlayer(
 
         when (LocalConfiguration.current.orientation) {
             Configuration.ORIENTATION_LANDSCAPE -> {
-                val bottomPadding by animateDpAsState(
-                    targetValue = if (isFullScreen) 0.dp else queueSheetState.collapsedBound + 48.dp,
-                    label = "bottomPadding"
+                // Calculate vertical padding like OuterTune
+                val density = LocalDensity.current
+                val verticalPadding = max(
+                    WindowInsets.systemBars.getTop(density),
+                    WindowInsets.systemBars.getBottom(density)
                 )
+                val verticalPaddingDp = with(density) { verticalPadding.toDp() }
+                val verticalWindowInsets = WindowInsets(left = 0.dp, top = verticalPaddingDp, right = 0.dp, bottom = verticalPaddingDp)
+                
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier =
-                    Modifier
-                        .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
-                        .padding(bottom = bottomPadding)
-                        .animateContentSize(),
+                    modifier = Modifier
+                        .windowInsetsPadding(
+                            WindowInsets.systemBars.only(WindowInsetsSides.Horizontal).add(verticalWindowInsets)
+                        )
+                        .padding(bottom = 24.dp)
+                        .fillMaxSize()
                 ) {
-                    Box(
+                    BoxWithConstraints(
                         contentAlignment = Alignment.Center,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .nestedScroll(state.preUpPostDownNestedScrollConnection)
                     ) {
-                        val screenWidth = LocalConfiguration.current.screenWidthDp
-                        val thumbnailSize = (screenWidth * 0.4).dp
+                        // Remember lambdas to prevent unnecessary recomposition
+                        val currentSliderPosition by rememberUpdatedState(sliderPosition)
+                        val sliderPositionProvider = remember { { currentSliderPosition } }
+                        val isExpandedProvider = remember(state) { { state.isExpanded } }
                         AnimatedContent(
                             targetState = showInlineLyrics,
                             label = "Lyrics",
@@ -1428,22 +1466,29 @@ fun BottomSheetPlayer(
                                 InlineLyricsView(mediaMetadata = mediaMetadata, showLyrics = showLyrics)
                             } else {
                                 Thumbnail(
-                                    sliderPositionProvider = { sliderPosition },
-                                    modifier = Modifier.size(thumbnailSize),
-                                    isPlayerExpanded = state.isExpanded
+                                    sliderPositionProvider = sliderPositionProvider,
+                                    modifier = Modifier.animateContentSize(),
+                                    isPlayerExpanded = isExpandedProvider,
+                                    isLandscape = true
                                 )
                             }
                         }
                     }
+
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 24.dp)
+                            .weight(if (showInlineLyrics) 0.65f else 1f, false)
+                            .animateContentSize()
+                            .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top))
                     ) {
+                        Spacer(Modifier.weight(1f))
+
                         mediaMetadata?.let {
                             controlsContent(it)
                         }
+
+                        Spacer(Modifier.weight(1f))
                     }
                 }
             }
@@ -1465,6 +1510,10 @@ fun BottomSheetPlayer(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier.weight(1f),
                     ) {
+                        // Remember lambdas to prevent unnecessary recomposition
+                        val currentSliderPosition by rememberUpdatedState(sliderPosition)
+                        val sliderPositionProvider = remember { { currentSliderPosition } }
+                        val isExpandedProvider = remember(state) { { state.isExpanded } }
                         AnimatedContent(
                             targetState = showInlineLyrics,
                             label = "Lyrics",
@@ -1474,9 +1523,9 @@ fun BottomSheetPlayer(
                                 InlineLyricsView(mediaMetadata = mediaMetadata, showLyrics = showLyrics)
                             } else {
                                 Thumbnail(
-                                    sliderPositionProvider = { sliderPosition },
+                                    sliderPositionProvider = sliderPositionProvider,
                                     modifier = Modifier.nestedScroll(state.preUpPostDownNestedScrollConnection),
-                                    isPlayerExpanded = state.isExpanded
+                                    isPlayerExpanded = isExpandedProvider
                                 )
                             }
                         }
@@ -1591,19 +1640,6 @@ fun InlineLyricsView(mediaMetadata: MediaMetadata?, showLyrics: Boolean) {
     }
 }
 
-private fun Modifier.bouncy(interactionSource: InteractionSource) = composed {
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.9f else 1f,
-        animationSpec = spring(),
-        label = "scale"
-    )
-
-    graphicsLayer {
-        scaleX = scale
-        scaleY = scale
-    }
-}
 
 @Composable
 fun MoreActionsButton(

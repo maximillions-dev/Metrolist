@@ -5,11 +5,7 @@
 
 package com.metrolist.music.ui.menu
 
-import android.content.Intent
 import android.content.res.Configuration
-import android.media.audiofx.AudioEffect
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -27,7 +23,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -39,7 +34,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -91,6 +85,7 @@ import com.metrolist.music.ui.component.NewAction
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.component.NewActionGrid
+import com.metrolist.music.ui.component.VolumeSlider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlin.math.log2
@@ -118,8 +113,6 @@ fun PlayerMenu(
     val castVolume by castHandler?.castVolume?.collectAsState() ?: remember { mutableStateOf(1f) }
     val castDeviceName by castHandler?.castDeviceName?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
     
-    val activityResultLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
     val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
     val coroutineScope = rememberCoroutineScope()
 
@@ -227,31 +220,18 @@ fun PlayerMenu(
                 }
             }
             
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.volume_up),
-                    contentDescription = null,
-                    modifier = Modifier.size(28.dp),
-                    tint = if (isCasting) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                )
-
-                Slider(
-                    value = if (isCasting) castVolume else playerVolume.value,
-                    onValueChange = { volume ->
-                        if (isCasting) {
-                            castHandler?.setVolume(volume)
-                        } else {
-                            playerConnection.service.playerVolume.value = volume
-                        }
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(36.dp),
-                )
-            }
+            VolumeSlider(
+                value = if (isCasting) castVolume else playerVolume.value,
+                onValueChange = { volume ->
+                    if (isCasting) {
+                        castHandler?.setVolume(volume)
+                    } else {
+                        playerConnection.service.playerVolume.value = volume
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                accentColor = MaterialTheme.colorScheme.primary
+            )
         }
     }
 
@@ -273,6 +253,7 @@ fun PlayerMenu(
         ),
     ) {
         item {
+            val startingRadioText = stringResource(R.string.starting_radio)
             NewActionGrid(
                 actions = listOf(
                     NewAction(
@@ -286,7 +267,7 @@ fun PlayerMenu(
                         },
                         text = stringResource(R.string.start_radio),
                         onClick = {
-                            Toast.makeText(context, context.getString(R.string.starting_radio), Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, stringResource(R.string.starting_radio), Toast.LENGTH_SHORT).show()
                             playerConnection.startRadioSeamlessly()
                             onDismiss()
                         }
@@ -510,24 +491,7 @@ fun PlayerMenu(
                                     )
                                 },
                                 onClick = {
-                                    val intent =
-                                        Intent(AudioEffect.ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL).apply {
-                                            putExtra(
-                                                AudioEffect.EXTRA_AUDIO_SESSION,
-                                                playerConnection.player.audioSessionId,
-                                            )
-                                            putExtra(
-                                                AudioEffect.EXTRA_PACKAGE_NAME,
-                                                context.packageName
-                                            )
-                                            putExtra(
-                                                AudioEffect.EXTRA_CONTENT_TYPE,
-                                                AudioEffect.CONTENT_TYPE_MUSIC
-                                            )
-                                        }
-                                    if (intent.resolveActivity(context.packageManager) != null) {
-                                        activityResultLauncher.launch(intent)
-                                    }
+                                    navController.navigate("equalizer")
                                     onDismiss()
                                 }
                             )

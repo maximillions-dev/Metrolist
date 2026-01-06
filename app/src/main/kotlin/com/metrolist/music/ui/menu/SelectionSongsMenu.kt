@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -267,22 +266,17 @@ fun SelectionSongMenu(
             Material3MenuGroup(
                 items = listOf(
                     Material3MenuItemData(
-                        title = { Text(text = stringResource(R.string.play)) },
+                        title = { Text(text = stringResource(R.string.play_next)) },
                         description = { Text(text = stringResource(R.string.play_next_desc)) },
                         icon = {
                             Icon(
-                                painter = painterResource(R.drawable.play),
+                                painter = painterResource(R.drawable.playlist_play),
                                 contentDescription = null,
                             )
                         },
                         onClick = {
                             onDismiss()
-                            playerConnection.playQueue(
-                                ListQueue(
-                                    title = "Selection",
-                                    items = songSelection.map { it.toMediaItem() },
-                                ),
-                            )
+                            playerConnection.playNext(songSelection.map { it.toMediaItem() })
                             clearAction()
                         }
                     ),

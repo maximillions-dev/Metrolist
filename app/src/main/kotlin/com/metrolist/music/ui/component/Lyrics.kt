@@ -49,7 +49,6 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -593,7 +592,6 @@ fun Lyrics(
             // For blur/gradient backgrounds, always use light colors regardless of theme
             Color.White
         }
-        else -> MaterialTheme.colorScheme.tertiary
     }
     val textColor = expressiveAccent
 
@@ -1205,7 +1203,7 @@ fun Lyrics(
                         val hasWordTimings = item.words?.isNotEmpty() == true
                         
                         // Word-by-word animation styles
-                        if (hasWordTimings && item.words != null && lyricsAnimationStyle == LyricsAnimationStyle.NONE) {
+                        if (hasWordTimings && lyricsAnimationStyle == LyricsAnimationStyle.NONE) {
                             val styledText = buildAnnotatedString {
                                 item.words.forEachIndexed { wordIndex, word ->
                                     val wordStartMs = (word.startTime * 1000).toLong()
@@ -1253,7 +1251,7 @@ fun Lyrics(
                                 textAlign = alignment,
                                 lineHeight = (lyricsTextSize * lyricsLineSpacing).sp
                             )
-                        } else if (hasWordTimings && item.words != null && lyricsAnimationStyle == LyricsAnimationStyle.FADE) {
+                        } else if (hasWordTimings && lyricsAnimationStyle == LyricsAnimationStyle.FADE) {
                             val styledText = buildAnnotatedString {
                                 item.words.forEachIndexed { wordIndex, word ->
                                     val wordStartMs = (word.startTime * 1000).toLong()
@@ -1293,7 +1291,7 @@ fun Lyrics(
                                 textAlign = alignment,
                                 lineHeight = (lyricsTextSize * lyricsLineSpacing).sp
                             )
-                        } else if (hasWordTimings && item.words != null && lyricsAnimationStyle == LyricsAnimationStyle.GLOW) {
+                        } else if (hasWordTimings && lyricsAnimationStyle == LyricsAnimationStyle.GLOW) {
                             val styledText = buildAnnotatedString {
                                 item.words.forEachIndexed { wordIndex, word ->
                                     val wordStartMs = (word.startTime * 1000).toLong()
@@ -1340,7 +1338,7 @@ fun Lyrics(
                                 textAlign = alignment,
                                 lineHeight = (lyricsTextSize * lyricsLineSpacing).sp
                             )
-                        } else if (hasWordTimings && item.words != null && lyricsAnimationStyle == LyricsAnimationStyle.SLIDE) {
+                        } else if (hasWordTimings && lyricsAnimationStyle == LyricsAnimationStyle.SLIDE) {
                             val firstWordStartMs = (item.words.firstOrNull()?.startTime?.times(1000))?.toLong() ?: 0L
                             val lastWordEndMs = (item.words.lastOrNull()?.endTime?.times(1000))?.toLong() ?: 0L
                             val lineDuration = lastWordEndMs - firstWordStartMs
@@ -1395,7 +1393,7 @@ fun Lyrics(
                                     lineHeight = (lyricsTextSize * lyricsLineSpacing).sp
                                 )
                             }
-                        } else if (hasWordTimings && item.words != null && lyricsAnimationStyle == LyricsAnimationStyle.KARAOKE) {
+                        } else if (hasWordTimings && lyricsAnimationStyle == LyricsAnimationStyle.KARAOKE) {
                             val styledText = buildAnnotatedString {
                                 item.words.forEachIndexed { wordIndex, word ->
                                     val wordStartMs = (word.startTime * 1000).toLong()
@@ -1545,97 +1543,89 @@ fun Lyrics(
                 }
             }
         }
-        }
     }
 
-    AnimatedVisibility(
-        visible = (!isAutoScrollEnabled && isSynced) || isSelectionModeActive,
-        enter = slideInVertically { it } + fadeIn(),
-        exit = slideOutVertically { it } + fadeOut()
+    Box(
+        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically
+        AnimatedVisibility(
+            visible = !isAutoScrollEnabled && isSynced && !isSelectionModeActive,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut()
         ) {
-            AnimatedVisibility(
-                visible = !isAutoScrollEnabled && isSynced,
-                enter = fadeIn(),
-                exit = fadeOut()
+            FilledTonalButton(onClick = {
+                scope.launch {
+                    performSmoothPageScroll(currentLineIndex, currentLineIndex, 1500)
+                }
+                isAutoScrollEnabled = true
+            }) {
+                Icon(
+                    painter = painterResource(id = R.drawable.sync),
+                    contentDescription = stringResource(R.string.auto_scroll),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = stringResource(R.string.auto_scroll))
+            }
+        }
+
+        AnimatedVisibility(
+            visible = isSelectionModeActive,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut()
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                FilledTonalButton(onClick = {
-                    scope.launch {
-                        performSmoothPageScroll(currentLineIndex, 1500)
+                FilledTonalButton(
+                    onClick = {
+                        isSelectionModeActive = false
+                        selectedIndices.clear()
                     }
-                    isAutoScrollEnabled = true
-                }) {
+                ) {
                     Icon(
-                        painter = painterResource(id = R.drawable.sync),
-                        contentDescription = stringResource(R.string.auto_scroll),
+                        painter = painterResource(id = R.drawable.close),
+                        contentDescription = stringResource(R.string.cancel),
                         modifier = Modifier.size(20.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = stringResource(R.string.auto_scroll))
                 }
-            }
-            AnimatedVisibility(
-                visible = isSelectionModeActive,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FilledTonalButton(
-                        onClick = {
+                FilledTonalButton(
+                    onClick = {
+                        if (selectedIndices.isNotEmpty()) {
+                            val sortedIndices = selectedIndices.sorted()
+                            val content = lyricsContent
+                            val selectedLyricsText = when (content) {
+                                is LyricsContent.Standard -> sortedIndices
+                                    .mapNotNull { content.lines.getOrNull(it)?.text }
+                                    .joinToString("\n")
+                                is LyricsContent.Hierarchical -> sortedIndices
+                                    .mapNotNull { content.lines.getOrNull(it)?.text }
+                                    .joinToString("\n")
+                                else -> ""
+                            }
+
+                            if (selectedLyricsText.isNotBlank()) {
+                                shareDialogData = Triple(
+                                    selectedLyricsText,
+                                    mediaMetadata?.title ?: "",
+                                    mediaMetadata?.artists?.joinToString { it.name } ?: ""
+                                )
+                                showShareDialog = true
+                            }
                             isSelectionModeActive = false
                             selectedIndices.clear()
                         }
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.close),
-                            contentDescription = stringResource(R.string.cancel),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    FilledTonalButton(
-                        onClick = {
-                            if (selectedIndices.isNotEmpty()) {
-                                val sortedIndices = selectedIndices.sorted()
-                                val content = lyricsContent
-                                val selectedLyricsText = when (content) {
-                                    is LyricsContent.Standard -> sortedIndices
-                                        .mapNotNull { content.lines.getOrNull(it)?.text }
-                                        .joinToString("\n")
-                                    is LyricsContent.Hierarchical -> sortedIndices
-                                        .mapNotNull { content.lines.getOrNull(it)?.text }
-                                        .joinToString("\n")
-                                    else -> ""
-                                }
-
-                                if (selectedLyricsText.isNotBlank()) {
-                                    shareDialogData = Triple(
-                                        selectedLyricsText,
-                                        mediaMetadata?.title ?: "",
-                                        mediaMetadata?.artists?.joinToString { it.name } ?: ""
-                                    )
-                                    showShareDialog = true
-                                }
-                                isSelectionModeActive = false
-                                selectedIndices.clear()
-                            }
-                        },
-                        enabled = selectedIndices.isNotEmpty()
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.share),
-                            contentDescription = stringResource(R.string.share_selected),
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = stringResource(R.string.share))
-                    }
+                    },
+                    enabled = selectedIndices.isNotEmpty()
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.share),
+                        contentDescription = stringResource(R.string.share_selected),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = stringResource(R.string.share))
                 }
             }
         }

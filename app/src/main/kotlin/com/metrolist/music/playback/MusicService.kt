@@ -52,6 +52,7 @@ import androidx.media3.common.Player.REPEAT_MODE_ONE
 import androidx.media3.common.Player.STATE_IDLE
 import androidx.media3.common.Timeline
 import androidx.media3.common.audio.SonicAudioProcessor
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
@@ -121,6 +122,9 @@ import com.metrolist.music.db.entities.LyricsEntity
 import com.metrolist.music.db.entities.RelatedSongMap
 import com.metrolist.music.di.DownloadCache
 import com.metrolist.music.di.PlayerCache
+import com.metrolist.music.eq.EqualizerService
+import com.metrolist.music.eq.audio.CustomEqualizerAudioProcessor
+import com.metrolist.music.eq.data.EQProfileRepository
 import com.metrolist.music.extensions.SilentHandler
 import com.metrolist.music.extensions.collect
 import com.metrolist.music.extensions.collectLatest
@@ -181,6 +185,7 @@ import javax.inject.Inject
 import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
+@androidx.annotation.OptIn(UnstableApi::class)
 @AndroidEntryPoint
 class MusicService :
     MediaLibraryService(),
@@ -197,6 +202,12 @@ class MusicService :
 
     @Inject
     lateinit var mediaLibrarySessionCallback: MediaLibrarySessionCallback
+
+    @Inject
+    lateinit var equalizerService: EqualizerService
+
+    @Inject
+    lateinit var eqProfileRepository: EQProfileRepository
 
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
@@ -244,6 +255,9 @@ class MusicService :
     lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaLibrarySession
 
+    // Custom Audio Processor
+    private val customEqualizerAudioProcessor = CustomEqualizerAudioProcessor()
+
     private var isAudioEffectSessionOpened = false
     private var loudnessEnhancer: LoudnessEnhancer? = null
 
@@ -268,6 +282,9 @@ class MusicService :
 
     override fun onCreate() {
         super.onCreate()
+
+        // 3. Connect the processor to the service
+        equalizerService.setAudioProcessor(customEqualizerAudioProcessor)
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -368,6 +385,28 @@ class MusicService :
 
         // Initialize Google Cast
         initializeCast()
+
+        // 4. Watch for EQ profile changes
+        scope.launch {
+            eqProfileRepository.activeProfile.collect { profile ->
+                if (profile != null) {
+                    val applied = equalizerService.applyProfile(profile)
+                    if (applied && player.playbackState == Player.STATE_READY && player.isPlaying) {
+                        // Instant update: flush buffers and seek slightly to re-process audio
+                        customEqualizerAudioProcessor.flush()
+                        // Small seek to force re-buffer through the new EQ settings
+                        // Seek to current position effectively resets the pipeline
+                        player.seekTo(player.currentPosition) 
+                    }
+                } else {
+                    equalizerService.disable()
+                    if (player.playbackState == Player.STATE_READY && player.isPlaying) {
+                        customEqualizerAudioProcessor.flush()
+                        player.seekTo(player.currentPosition)
+                    }
+                }
+            }
+        }
 
         scope.launch {
             connectivityObserver.networkStatus.collect { isConnected ->
@@ -924,35 +963,72 @@ class MusicService :
         val currentMediaId = currentMediaMetadata.id
 
         scope.launch(SilentHandler) {
+            // Use radio playlist format for better compatibility
             val radioQueue = YouTubeQueue(
-                endpoint = WatchEndpoint(videoId = currentMediaId)
+                endpoint = WatchEndpoint(
+                    videoId = currentMediaId,
+                    playlistId = "RDAMVM$currentMediaId",
+                    params = "wAEB"
+                )
             )
-            val initialStatus = withContext(Dispatchers.IO) {
-                radioQueue.getInitialStatus()
-                    .filterExplicit(dataStore.get(HideExplicitKey, false))
-                    .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
-            }
-
-            if (initialStatus.title != null) {
-                queueTitle = initialStatus.title
-            }
-
-            // Filter radio items to exclude current media item
-            val radioItems = initialStatus.items.filter { item ->
-                item.mediaId != currentMediaId
-            }
-
-            if (radioItems.isNotEmpty()) {
-                val itemCount = player.mediaItemCount
-
-                if (itemCount > currentIndex + 1) {
-                    player.removeMediaItems(currentIndex + 1, itemCount)
+            
+            try {
+                val initialStatus = withContext(Dispatchers.IO) {
+                    radioQueue.getInitialStatus()
+                        .filterExplicit(dataStore.get(HideExplicitKey, false))
+                        .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
                 }
 
-                player.addMediaItems(currentIndex + 1, radioItems)
-            }
+                if (initialStatus.title != null) {
+                    queueTitle = initialStatus.title
+                }
 
-            currentQueue = radioQueue
+                // Filter radio items to exclude current media item
+                val radioItems = initialStatus.items.filter { item ->
+                    item.mediaId != currentMediaId
+                }
+
+                if (radioItems.isNotEmpty()) {
+                    val itemCount = player.mediaItemCount
+
+                    if (itemCount > currentIndex + 1) {
+                        player.removeMediaItems(currentIndex + 1, itemCount)
+                    }
+
+                    player.addMediaItems(currentIndex + 1, radioItems)
+                }
+
+                currentQueue = radioQueue
+            } catch (e: Exception) {
+                // Fallback: try with related endpoint
+                try {
+                    val nextResult = withContext(Dispatchers.IO) {
+                        YouTube.next(WatchEndpoint(videoId = currentMediaId)).getOrNull()
+                    }
+                    nextResult?.relatedEndpoint?.let { relatedEndpoint ->
+                        val relatedPage = withContext(Dispatchers.IO) {
+                            YouTube.related(relatedEndpoint).getOrNull()
+                        }
+                        relatedPage?.songs?.let { songs ->
+                            val radioItems = songs
+                                .filter { it.id != currentMediaId }
+                                .map { it.toMediaItem() }
+                                .filterExplicit(dataStore.get(HideExplicitKey, false))
+                                .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
+                            
+                            if (radioItems.isNotEmpty()) {
+                                val itemCount = player.mediaItemCount
+                                if (itemCount > currentIndex + 1) {
+                                    player.removeMediaItems(currentIndex + 1, itemCount)
+                                }
+                                player.addMediaItems(currentIndex + 1, radioItems)
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Silent fail
+                }
+            }
         }
     }
 
@@ -970,18 +1046,58 @@ class MusicService :
         if (dataStore[SimilarContent] == true &&
             !(dataStore.get(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL)) {
             scope.launch(SilentHandler) {
-                YouTube
-                    .next(WatchEndpoint(playlistId = playlistId))
-                    .onSuccess {
-                        YouTube
-                            .next(WatchEndpoint(playlistId = it.endpoint.playlistId))
-                            .onSuccess {
-                                automixItems.value =
-                                    it.items.map { song ->
+                try {
+                    // Try primary method
+                    YouTube.next(WatchEndpoint(playlistId = playlistId))
+                        .onSuccess { firstResult ->
+                            YouTube.next(WatchEndpoint(playlistId = firstResult.endpoint.playlistId))
+                                .onSuccess { secondResult ->
+                                    automixItems.value = secondResult.items.map { song ->
                                         song.toMediaItem()
                                     }
+                                }
+                                .onFailure {
+                                    // Fallback: use first result items
+                                    if (firstResult.items.isNotEmpty()) {
+                                        automixItems.value = firstResult.items.map { song ->
+                                            song.toMediaItem()
+                                        }
+                                    }
+                                }
+                        }
+                        .onFailure {
+                            // Fallback: try with radio format
+                            val currentSong = player.currentMetadata
+                            if (currentSong != null) {
+                                YouTube.next(WatchEndpoint(
+                                    videoId = currentSong.id,
+                                    playlistId = "RDAMVM${currentSong.id}",
+                                    params = "wAEB"
+                                )).onSuccess { radioResult ->
+                                    val filteredItems = radioResult.items
+                                        .filter { it.id != currentSong.id }
+                                        .map { it.toMediaItem() }
+                                    if (filteredItems.isNotEmpty()) {
+                                        automixItems.value = filteredItems
+                                    }
+                                }.onFailure {
+                                    // Final fallback: try related endpoint
+                                    YouTube.next(WatchEndpoint(videoId = currentSong.id)).getOrNull()?.relatedEndpoint?.let { relatedEndpoint ->
+                                        YouTube.related(relatedEndpoint).onSuccess { relatedPage ->
+                                            val relatedItems = relatedPage.songs
+                                                .filter { it.id != currentSong.id }
+                                                .map { it.toMediaItem() }
+                                            if (relatedItems.isNotEmpty()) {
+                                                automixItems.value = relatedItems
+                                            }
+                                        }
+                                    }
+                                }
                             }
-                    }
+                        }
+                } catch (_: Exception) {
+                    // Silent fail
+                }
             }
         }
     }
@@ -1648,7 +1764,8 @@ class MusicService :
                 .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                 .setAudioProcessorChain(
                     DefaultAudioSink.DefaultAudioProcessorChain(
-                        emptyArray(),
+                        // 2. Inject processor into audio pipeline
+                        arrayOf(customEqualizerAudioProcessor),
                         SilenceSkippingAudioProcessor(2_000_000, 20_000, 256),
                         SonicAudioProcessor(),
                     ),
@@ -1829,81 +1946,86 @@ class MusicService :
 
     // --- WIDGET UPDATE HELPER ---
     private fun updateWidgetUI(isPlaying: Boolean) {
-        val context = this
-        val appWidgetManager = AppWidgetManager.getInstance(context)
-        val ids = appWidgetManager.getAppWidgetIds(ComponentName(context, HelloWidget::class.java))
-        if (ids.isEmpty()) return
+        try {
+            val context = this
+            val appWidgetManager = AppWidgetManager.getInstance(context)
+            val ids = appWidgetManager.getAppWidgetIds(ComponentName(context, HelloWidget::class.java))
+            if (ids.isEmpty()) return
 
-        scope.launch(Dispatchers.IO) {
-            val song = currentSong.value?.song
-            val songTitle = song?.title ?: "No Song Playing"
+            scope.launch(Dispatchers.IO) {
+                val song = currentSong.value?.song
+                val songTitle = song?.title ?: "No Song Playing"
 
-            val views = RemoteViews(packageName, R.layout.widget_hello)
-            views.setTextViewText(R.id.txt_song_title, songTitle)
+                val views = RemoteViews(packageName, R.layout.widget_hello)
+                views.setTextViewText(R.id.txt_song_title, songTitle)
 
-            val playIcon = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
-            views.setImageViewResource(R.id.btn_play, playIcon)
+                val playIcon = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+                views.setImageViewResource(R.id.btn_play, playIcon)
 
-            // --- COIL 3 IMAGE LOADING (SAFE MODE) ---
-            if (song?.thumbnailUrl != null) {
-                try {
-                    val loader = ImageLoader(context)
-                    val request = ImageRequest.Builder(context)
-                        .data(song.thumbnailUrl)
-                        .size(300, 300)
-                        .build()
+                // --- COIL 3 IMAGE LOADING (SAFE MODE) ---
+                if (song?.thumbnailUrl != null) {
+                    try {
+                        val loader = ImageLoader(context)
+                        val request = ImageRequest.Builder(context)
+                            .data(song.thumbnailUrl)
+                            .size(300, 300)
+                            .build()
 
-                    val result = loader.execute(request)
+                        val result = loader.execute(request)
 
-                    if (result is SuccessResult) {
-                        val originalBitmap = result.image.toBitmap()
-                        val safeBitmap = if (originalBitmap.config == Bitmap.Config.HARDWARE) {
-                            originalBitmap.copy(Bitmap.Config.ARGB_8888, false)
-                        } else {
-                            originalBitmap
+                        if (result is SuccessResult) {
+                            val originalBitmap = result.image.toBitmap()
+                            val safeBitmap = if (originalBitmap.config == Bitmap.Config.HARDWARE) {
+                                originalBitmap.copy(Bitmap.Config.ARGB_8888, false)
+                            } else {
+                                originalBitmap
+                            }
+                            views.setImageViewBitmap(R.id.img_album_art, safeBitmap)
                         }
-                        views.setImageViewBitmap(R.id.img_album_art, safeBitmap)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            } else {
-                views.setImageViewResource(R.id.img_album_art, android.R.drawable.ic_menu_gallery)
-            }
-
-            // --- FIXED: Renamed 'flags' to 'piFlags' to avoid conflict ---
-            val piFlags = if (android.os.Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE else PendingIntent.FLAG_UPDATE_CURRENT
-
-            fun getPending(action: String): PendingIntent {
-                val i = Intent(context, MusicService::class.java).apply { this.action = action }
-                return if (android.os.Build.VERSION.SDK_INT >= 26) {
-                    PendingIntent.getForegroundService(context, 0, i, piFlags)
                 } else {
-                    PendingIntent.getService(context, 0, i, piFlags)
+                    views.setImageViewResource(R.id.img_album_art, android.R.drawable.ic_menu_gallery)
                 }
+
+                // --- FIXED: Renamed 'flags' to 'piFlags' to avoid conflict ---
+                val piFlags = if (android.os.Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE else PendingIntent.FLAG_UPDATE_CURRENT
+
+                fun getPending(action: String): PendingIntent {
+                    val i = Intent(context, MusicService::class.java).apply { this.action = action }
+                    return if (android.os.Build.VERSION.SDK_INT >= 26) {
+                        PendingIntent.getForegroundService(context, 0, i, piFlags)
+                    } else {
+                        PendingIntent.getService(context, 0, i, piFlags)
+                    }
+                }
+
+                views.setOnClickPendingIntent(R.id.btn_prev, getPending(HelloWidget.ACTION_PREV))
+                views.setOnClickPendingIntent(R.id.btn_play, getPending(HelloWidget.ACTION_PLAY_PAUSE))
+                views.setOnClickPendingIntent(R.id.btn_next, getPending(HelloWidget.ACTION_NEXT))
+                views.setOnClickPendingIntent(R.id.btn_like, getPending(HelloWidget.ACTION_LIKE))
+
+                // --- APP OPEN LOGIC ---
+                val openAppIntent = Intent(context, MainActivity::class.java).apply {
+                    // Now this works because 'flags' refers to the Intent, not the variable above
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+
+                val openAppPendingIntent = PendingIntent.getActivity(
+                    context,
+                    0,
+                    openAppIntent,
+                    piFlags // Use the renamed variable here
+                )
+
+                views.setOnClickPendingIntent(R.id.img_album_art, openAppPendingIntent)
+
+                appWidgetManager.updateAppWidget(ids, views)
             }
-
-            views.setOnClickPendingIntent(R.id.btn_prev, getPending(HelloWidget.ACTION_PREV))
-            views.setOnClickPendingIntent(R.id.btn_play, getPending(HelloWidget.ACTION_PLAY_PAUSE))
-            views.setOnClickPendingIntent(R.id.btn_next, getPending(HelloWidget.ACTION_NEXT))
-            views.setOnClickPendingIntent(R.id.btn_like, getPending(HelloWidget.ACTION_LIKE))
-
-            // --- APP OPEN LOGIC ---
-            val openAppIntent = Intent(context, MainActivity::class.java).apply {
-                // Now this works because 'flags' refers to the Intent, not the variable above
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-
-            val openAppPendingIntent = PendingIntent.getActivity(
-                context,
-                0,
-                openAppIntent,
-                piFlags // Use the renamed variable here
-            )
-
-            views.setOnClickPendingIntent(R.id.img_album_art, openAppPendingIntent)
-
-            appWidgetManager.updateAppWidget(ids, views)
+        } catch (e: Exception) {
+            // Fail silently on Wear OS or other platforms without widget support
+            reportException(e)
         }
     }
 
