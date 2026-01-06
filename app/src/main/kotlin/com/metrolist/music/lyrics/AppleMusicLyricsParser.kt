@@ -11,8 +11,7 @@ object AppleMusicLyricsParser {
     private val partRegex = Pattern.compile("<(\\d{2}):(\\d{2})\\.(\\d{2,3})>([^<]*)")
 
     private object GlowProcessor {
-        private const val LONG_WORD_GLOW_THRESHOLD = 1.2f
-        private const val GLOW_SCORE_THRESHOLD = 1.2f // Lowered threshold for more sensitivity
+        private const val GLOW_DURATION_THRESHOLD = 1.1f
 
         fun processAndAssignGlow(originalWords: List<Word>): List<Word> {
             val newWords = mutableListOf<Word>()
@@ -35,38 +34,17 @@ object AppleMusicLyricsParser {
                     }
                 }
 
-                // Now, process the conceptual word (which might be just a single word)
                 processedIndices.addAll(conceptualParts.map { originalWords.indexOf(it) })
 
-                val conceptualText = conceptualParts.joinToString("") { it.text }.trim()
-                val conceptualStartTime = conceptualParts.first().startTime
-                val conceptualEndTime = conceptualParts.last().endTime
-                val conceptualDuration = conceptualEndTime - conceptualStartTime
+                val conceptualDuration = conceptualParts.last().endTime - conceptualParts.first().startTime
 
                 var glowStrength = 0f
                 var glowingPart: Word? = null
 
-                // First, check for hyphenated "accumulated glow"
-                if (conceptualText.count { it == '-' } >= 2) {
-                    val longestPart = conceptualParts.maxByOrNull { it.endTime - it.startTime }
-                    if (longestPart != null) {
-                         val longestPartDuration = longestPart.endTime - longestPart.startTime
-                         if (longestPartDuration >= LONG_WORD_GLOW_THRESHOLD) { // Use same threshold
-                            glowStrength = conceptualParts.sumOf { if (it == longestPart) 0.50 else 0.25 }.toFloat()
-                            glowingPart = longestPart
-                         }
-                    }
-                }
-
-                // If not an accumulated glow, check for "long word glow"
-                if (glowStrength == 0f && conceptualDuration >= LONG_WORD_GLOW_THRESHOLD) {
-                    // New formula with more weight on duration
-                    val score = (conceptualText.length / 15.0f) + (conceptualDuration / 1.5f)
-                    if (score > GLOW_SCORE_THRESHOLD) {
-                        glowStrength = ((score - GLOW_SCORE_THRESHOLD) * 0.5f).coerceIn(0f, 1.0f)
-                        // The glow applies to the longest part of the conceptual word
-                        glowingPart = conceptualParts.maxByOrNull { it.endTime - it.startTime }
-                    }
+                if (conceptualDuration > GLOW_DURATION_THRESHOLD) {
+                    glowStrength = 1.0f
+                    // The glow applies to the longest part of the conceptual word
+                    glowingPart = conceptualParts.maxByOrNull { it.endTime - it.startTime }
                 }
 
                 // Add the processed parts to the new word list
