@@ -1593,7 +1593,7 @@ fun Lyrics(
         ) {
             FilledTonalButton(onClick = {
                 scope.launch {
-                    performSmoothPageScroll(currentLineIndex, 1500)
+                    performSmoothPageScroll(currentLineIndex, currentLineIndex, 1500)
                 }
                 isAutoScrollEnabled = true
             }) {
@@ -1632,9 +1632,16 @@ fun Lyrics(
                     onClick = {
                         if (selectedIndices.isNotEmpty()) {
                             val sortedIndices = selectedIndices.sorted()
-                            val selectedLyricsText = sortedIndices
-                                .mapNotNull { lines.getOrNull(it)?.text }
-                                .joinToString("\n")
+                            val content = lyricsContent
+                            val selectedLyricsText = when (content) {
+                                is LyricsContent.Standard -> sortedIndices
+                                    .mapNotNull { content.lines.getOrNull(it)?.text }
+                                    .joinToString("\n")
+                                is LyricsContent.Hierarchical -> sortedIndices
+                                    .mapNotNull { content.lines.getOrNull(it)?.text }
+                                    .joinToString("\n")
+                                else -> ""
+                            }
 
                             if (selectedLyricsText.isNotBlank()) {
                                 shareDialogData = Triple(
