@@ -291,45 +291,31 @@ fun HierarchicalLyricsLine(
     val activeWordIndex = if (isActive) {
         line.words.indexOfLast { (it.startTime * 1000) <= currentPosition }
     } else {
-        // If line is not active, check if it has already passed
         val lineEndTime = (line.endTime * 1000f)
         if (currentPosition > lineEndTime) line.words.lastIndex else -1
     }
 
     val glowAnimatable = remember { Animatable(0f) }
     val activeWord = line.words.getOrNull(activeWordIndex)
+    var previousGlowWord by remember { mutableStateOf<com.metrolist.music.lyrics.Word?>(null) }
 
     LaunchedEffect(activeWord, isActive) {
         if (isActive && activeWord != null && lyricsGlowEffect && activeWord.glowStrength > 0) {
-            val durationMillis = ((activeWord.endTime - activeWord.startTime) * 1000).toLong()
-            if (durationMillis > 0) {
-                                // 1. Quick Start
-                glowAnimatable.animateTo(
-                                    targetValue = activeWord.glowStrength * 15f, // 50% of max
-                                    animationSpec = tween(
-                                        durationMillis = (durationMillis * 0.2).toInt(),
-                                        easing = FastOutSlowInEasing
-                                    )
-                                )
-                                // 2. Sustained Glow
-                                glowAnimatable.animateTo(
-                                    targetValue = activeWord.glowStrength * 30f, // 100% of max
-                    animationSpec = tween(
-                                        durationMillis = (durationMillis * 0.6).toInt(),
-                        easing = LinearEasing
-                    )
-                )
-                                // 3. Graceful Fade-Out
+            previousGlowWord = activeWord
+            glowAnimatable.animateTo(
+                targetValue = activeWord.glowStrength * 30f,
+                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+            )
+        } else {
+            if (previousGlowWord != null) {
                 glowAnimatable.animateTo(
                     targetValue = 0f,
-                    animationSpec = tween(
-                                        durationMillis = (durationMillis * 0.2).toInt(),
-                        easing = FastOutSlowInEasing
-                    )
+                    animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
                 )
+                previousGlowWord = null
+            } else {
+                glowAnimatable.snapTo(0f)
             }
-        } else {
-            glowAnimatable.snapTo(0f)
         }
     }
 
@@ -356,20 +342,19 @@ fun HierarchicalLyricsLine(
                     )
 
                     if (activeWordIndex != -1) {
-                        // Get character offset of the active word
-                        val activeWordStartOffset = line.words.take(activeWordIndex)
-                            .joinToString("") { it.text }.length
+                        val wordToProcess = activeWord ?: line.words.last()
+                        val activeWordStartOffset = line.words.take(activeWordIndex).sumOf { it.text.length }
 
                         val wordProgress = if (isActive) {
-                            val wordStartTime = (activeWord!!.startTime * 1000f)
-                            val wordEndTime = (activeWord.endTime * 1000f)
+                            val wordStartTime = (wordToProcess.startTime * 1000f)
+                            val wordEndTime = (wordToProcess.endTime * 1000f)
                             val wordDuration = wordEndTime - wordStartTime
                             if (wordDuration > 0) {
                                 ((currentPosition - wordStartTime) / wordDuration).coerceIn(0f, 1f)
                             } else 1f
-                        } else 1f // Already passed lines are fully filled
+                        } else 1f
 
-                        val wordProgressFloat = activeWord!!.text.length * wordProgress
+                        val wordProgressFloat = wordToProcess.text.length * wordProgress
                         val currentCharIndex = wordProgressFloat.toInt()
                         val subCharProgress = wordProgressFloat - currentCharIndex
 
@@ -383,43 +368,23 @@ fun HierarchicalLyricsLine(
                         val endLine = measuredText.getLineForOffset(totalCharOffsetEnd)
 
                         val horizontalClip = if (startLine != endLine || clipEnd < clipStart) {
-                            // Word wraps or is at the end of a line, fill up to the start position
                             clipStart
                         } else {
-                            // Interpolate for a smooth wipe effect
                             clipStart + (clipEnd - clipStart) * subCharProgress
                         }
 
                         if (horizontalClip > 0) {
                             val pathForClipping = androidx.compose.ui.graphics.Path()
-                            val activeLineIndexClip = measuredText.getLineForOffset(totalCharOffsetStart)
-
-                            // Add rects for all the lines before the current active one
-                            for (i in 0 until activeLineIndexClip) {
-                                pathForClipping.addRect(
-                                    androidx.compose.ui.geometry.Rect(
-                                        left = measuredText.getLineLeft(i),
-                                        top = measuredText.getLineTop(i),
-                                        right = measuredText.getLineRight(i),
-                                        bottom = measuredText.getLineBottom(i)
-                                    )
-                                )
+                            val currentLineIndex = measuredText.getLineForOffset(totalCharOffsetStart)
+                            for (i in 0 until currentLineIndex) {
+                                pathForClipping.addRect(Rect(0f, measuredText.getLineTop(i), size.width, measuredText.getLineBottom(i)))
                             }
-
-                            // Add a rect for the current line, clipped smoothly
-                            pathForClipping.addRect(
-                                androidx.compose.ui.geometry.Rect(
-                                    left = measuredText.getLineLeft(activeLineIndexClip),
-                                    top = measuredText.getLineTop(activeLineIndexClip),
-                                    right = horizontalClip,
-                                    bottom = measuredText.getLineBottom(activeLineIndexClip)
-                                )
-                            )
+                            pathForClipping.addRect(Rect(0f, measuredText.getLineTop(currentLineIndex), horizontalClip, measuredText.getLineBottom(currentLineIndex)))
 
                             val glowRadius = glowAnimatable.value
                             val shadow = if (glowRadius > 0.1f) {
                                 Shadow(
-                                    color = activeColor.copy(alpha = (glowRadius / 45f).coerceIn(0.2f, 0.8f)),
+                                    color = activeColor.copy(alpha = (glowRadius / 40f).coerceIn(0.2f, 1.0f)),
                                     offset = Offset.Zero,
                                     blurRadius = glowRadius
                                 )
