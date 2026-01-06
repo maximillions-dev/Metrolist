@@ -299,114 +299,132 @@ fun HierarchicalLyricsLine(
         if (currentPosition > lineEndTime) line.words.lastIndex else -1
     }
 
-    val glowAnimatable = remember { Animatable(0f) }
     val activeWord = line.words.getOrNull(activeWordIndex)
-    var previousGlowWord by remember { mutableStateOf<com.metrolist.music.lyrics.Word?>(null) }
+    val wordsThatShouldGlow = remember(line.words) {
+        line.words.filter { it.glowStrength > 0 }.toSet()
+    }
+    val lineHasGlowWords = wordsThatShouldGlow.isNotEmpty()
 
-    LaunchedEffect(activeWord, isActive) {
-        if (isActive && activeWord != null && lyricsGlowEffect && activeWord.glowStrength > 0) {
-            previousGlowWord = activeWord
+    val glowAnimatable = remember { Animatable(0f) }
+    LaunchedEffect(isActive, lineHasGlowWords, lyricsGlowEffect) {
+        if (isActive && lineHasGlowWords && lyricsGlowEffect) {
             glowAnimatable.animateTo(
-                targetValue = activeWord.glowStrength * MAX_GLOW_RADIUS,
+                targetValue = MAX_GLOW_RADIUS,
                 animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
             )
         } else {
-            if (previousGlowWord != null) {
-                glowAnimatable.animateTo(
-                    targetValue = 0f,
-                    animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
-                )
-                previousGlowWord = null
-            } else {
-                glowAnimatable.snapTo(0f)
-            }
+            glowAnimatable.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
+            )
         }
     }
 
-    Text(
-        text = line.text,
-        style = textStyle,
-        color = Color.Transparent, // Prevent redundant draw, drawing is handled in drawWithCache
+    Box(
         modifier = Modifier
-            .graphicsLayer()
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 4.dp)
-            .drawWithCache {
-                val measuredText = textMeasurer.measure(
-                    text = AnnotatedString(line.text),
-                    style = textStyle,
-                    constraints = androidx.compose.ui.unit.Constraints(maxWidth = size.width.toInt())
+    ) {
+        val glowRadius = glowAnimatable.value
+        if (glowRadius > 0.1f) {
+            val glowShadow = remember(glowRadius, activeColor) {
+                Shadow(
+                    color = activeColor.copy(alpha = (glowRadius / GLOW_ALPHA_DIVISOR).coerceIn(0.2f, 1.0f)),
+                    offset = Offset.Zero,
+                    blurRadius = glowRadius
                 )
+            }
 
-                onDrawBehind {
-                    // Draw the inactive text
-                    drawText(
-                        textLayoutResult = measuredText,
-                        color = inactiveColor,
-                    )
-
-                    if (activeWordIndex != -1) {
-                        val wordToProcess = activeWord ?: line.words.last()
-                        val activeWordStartOffset = line.words.take(activeWordIndex).sumOf { it.text.length }
-
-                        val wordProgress = if (isActive) {
-                            val wordStartTime = (wordToProcess.startTime * 1000f)
-                            val wordEndTime = (wordToProcess.endTime * 1000f)
-                            val wordDuration = wordEndTime - wordStartTime
-                            if (wordDuration > 0) {
-                                ((currentPosition - wordStartTime) / wordDuration).coerceIn(0f, 1f)
-                            } else 1f
-                        } else 1f
-
-                        val wordProgressFloat = wordToProcess.text.length * wordProgress
-                        val currentCharIndex = wordProgressFloat.toInt()
-                        val subCharProgress = wordProgressFloat - currentCharIndex
-
-                        val totalCharOffsetStart = activeWordStartOffset + currentCharIndex
-                        val totalCharOffsetEnd = (totalCharOffsetStart + 1).coerceAtMost(measuredText.layoutInput.text.length)
-
-                        val clipStart = measuredText.getHorizontalPosition(totalCharOffsetStart, true)
-                        val clipEnd = measuredText.getHorizontalPosition(totalCharOffsetEnd, true)
-
-                        val startLine = measuredText.getLineForOffset(totalCharOffsetStart)
-                        val endLine = measuredText.getLineForOffset(totalCharOffsetEnd)
-
-                        val horizontalClip = if (startLine != endLine || clipEnd < clipStart) {
-                            clipStart
-                        } else {
-                            clipStart + (clipEnd - clipStart) * subCharProgress
+            val glowingText = buildAnnotatedString {
+                line.words.forEach { word ->
+                    if (wordsThatShouldGlow.contains(word)) {
+                        withStyle(style = SpanStyle(shadow = glowShadow)) {
+                            append(word.text)
                         }
-
-                        if (horizontalClip > 0) {
-                            val pathForClipping = androidx.compose.ui.graphics.Path()
-                            val currentLineIndex = measuredText.getLineForOffset(totalCharOffsetStart)
-                            for (i in 0 until currentLineIndex) {
-                                pathForClipping.addRect(Rect(0f, measuredText.getLineTop(i), size.width, measuredText.getLineBottom(i)))
-                            }
-                            pathForClipping.addRect(Rect(0f, measuredText.getLineTop(currentLineIndex), horizontalClip, measuredText.getLineBottom(currentLineIndex)))
-
-                            val glowRadius = glowAnimatable.value
-                            val shadow = if (glowRadius > 0.1f) {
-                                Shadow(
-                                    color = activeColor.copy(alpha = (glowRadius / GLOW_ALPHA_DIVISOR).coerceIn(0.2f, 1.0f)),
-                                    offset = Offset.Zero,
-                                    blurRadius = glowRadius
-                                )
-                            } else null
-
-                            drawContext.canvas.save()
-                            drawContext.canvas.clipPath(pathForClipping)
-                            drawText(
-                                textLayoutResult = measuredText,
-                                color = activeColor,
-                                shadow = shadow
-                            )
-                            drawContext.canvas.restore()
-                        }
+                    } else {
+                        append(word.text)
                     }
                 }
             }
-    )
+            Text(
+                text = glowingText,
+                style = textStyle.copy(color = Color.Transparent),
+                modifier = Modifier.matchParentSize()
+            )
+        }
+
+        Text(
+            text = line.text,
+            style = textStyle,
+            color = Color.Transparent,
+            modifier = Modifier
+                .fillMaxWidth()
+                .drawWithCache {
+                    val measuredText = textMeasurer.measure(
+                        text = AnnotatedString(line.text),
+                        style = textStyle,
+                        constraints = androidx.compose.ui.unit.Constraints(maxWidth = size.width.toInt())
+                    )
+
+                    onDrawBehind {
+                        drawText(
+                            textLayoutResult = measuredText,
+                            color = inactiveColor,
+                        )
+
+                        if (activeWordIndex != -1) {
+                            val wordToProcess = activeWord ?: line.words.last()
+                            val activeWordStartOffset = line.words.take(activeWordIndex).sumOf { it.text.length }
+
+                            val wordProgress = if (isActive) {
+                                val wordStartTime = (wordToProcess.startTime * 1000f)
+                                val wordEndTime = (wordToProcess.endTime * 1000f)
+                                val wordDuration = wordEndTime - wordStartTime
+                                if (wordDuration > 0) {
+                                    ((currentPosition - wordStartTime) / wordDuration).coerceIn(0f, 1f)
+                                } else 1f
+                            } else 1f
+
+                            val wordProgressFloat = wordToProcess.text.length * wordProgress
+                            val currentCharIndex = wordProgressFloat.toInt()
+                            val subCharProgress = wordProgressFloat - currentCharIndex
+
+                            val totalCharOffsetStart = activeWordStartOffset + currentCharIndex
+                            val totalCharOffsetEnd = (totalCharOffsetStart + 1).coerceAtMost(measuredText.layoutInput.text.length)
+
+                            val clipStart = measuredText.getHorizontalPosition(totalCharOffsetStart, true)
+                            val clipEnd = measuredText.getHorizontalPosition(totalCharOffsetEnd, true)
+
+                            val startLine = measuredText.getLineForOffset(totalCharOffsetStart)
+                            val endLine = measuredText.getLineForOffset(totalCharOffsetEnd)
+
+                            val horizontalClip = if (startLine != endLine || clipEnd < clipStart) {
+                                clipStart
+                            } else {
+                                clipStart + (clipEnd - clipStart) * subCharProgress
+                            }
+
+                            if (horizontalClip > 0) {
+                                val pathForClipping = androidx.compose.ui.graphics.Path()
+                                val currentLineIndex = measuredText.getLineForOffset(totalCharOffsetStart)
+                                for (i in 0 until currentLineIndex) {
+                                    pathForClipping.addRect(Rect(0f, measuredText.getLineTop(i), size.width, measuredText.getLineBottom(i)))
+                                }
+                                pathForClipping.addRect(Rect(0f, measuredText.getLineTop(currentLineIndex), horizontalClip, measuredText.getLineBottom(currentLineIndex)))
+
+                                drawContext.canvas.save()
+                                drawContext.canvas.clipPath(pathForClipping)
+                                drawText(
+                                    textLayoutResult = measuredText,
+                                    color = activeColor
+                                )
+                                drawContext.canvas.restore()
+                            }
+                        }
+                    }
+                }
+        )
+    }
 }
 
 
