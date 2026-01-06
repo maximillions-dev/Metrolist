@@ -11,7 +11,7 @@ object AppleMusicLyricsParser {
     private val partRegex = Pattern.compile("<(\\d{2}):(\\d{2})\\.(\\d{2,3})>([^<]*)")
 
     private object GlowProcessor {
-        private const val GLOW_DURATION_THRESHOLD = 1.1f
+        private const val GLOW_DURATION_THRESHOLD = 1.8f
 
         fun processAndAssignGlow(originalWords: List<Word>): List<Word> {
             val newWords = mutableListOf<Word>()
