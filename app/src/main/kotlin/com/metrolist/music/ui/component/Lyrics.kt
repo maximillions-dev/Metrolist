@@ -334,6 +334,11 @@ fun HierarchicalLyricsLine(
         }
     }
 
+    // Use key to force recomposition when text style changes
+    val textStyleKey = remember(lyricsTextSize, lyricsLineSpacing, textAlign) {
+        "$lyricsTextSize-$lyricsLineSpacing-$textAlign"
+    }
+
     Text(
         text = line.text,
         style = textStyle,
@@ -343,6 +348,9 @@ fun HierarchicalLyricsLine(
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 12.dp) // Increased vertical padding to prevent descender clipping
             .drawWithCache {
+                // Include textStyleKey in the cache key by referencing it
+                @Suppress("UNUSED_VARIABLE")
+                val cacheKey = textStyleKey
                 val measuredText = textMeasurer.measure(
                     text = AnnotatedString(line.text),
                     style = textStyle,
@@ -817,13 +825,19 @@ fun Lyrics(
             isAnimating = false
         }
     }
-    LaunchedEffect(scrollTargetMinIndex, scrollTargetMaxIndex, lastPreviewTime, initialScrollDone, isAutoScrollEnabled) {
+    LaunchedEffect(scrollTargetMinIndex, scrollTargetMaxIndex, lastPreviewTime, initialScrollDone, isAutoScrollEnabled, isSeeking) {
         if (!isSynced || !isAutoScrollEnabled) return@LaunchedEffect
 
         if (lyricsContent is LyricsContent.Hierarchical) {
             if (scrollTargetMinIndex == -1) return@LaunchedEffect
 
-            if (scrollTargetMinIndex != previousScrollTargetMinIndex || scrollTargetMaxIndex != previousScrollTargetMaxIndex) {
+            // Handle seeking - immediately scroll to the active line when user seeks
+            if (isSeeking) {
+                val seekCenterIndex = kotlin.math.max(0, scrollTargetMinIndex)
+                performSmoothPageScroll(seekCenterIndex, scrollTargetMaxIndex.coerceAtLeast(seekCenterIndex), 500)
+                previousScrollTargetMinIndex = scrollTargetMinIndex
+                previousScrollTargetMaxIndex = scrollTargetMaxIndex
+            } else if (scrollTargetMinIndex != previousScrollTargetMinIndex || scrollTargetMaxIndex != previousScrollTargetMaxIndex) {
                 val lines = lyricsContent.lines
                 val previousLine = lines.getOrNull(previousScrollTargetMaxIndex)
                 val currentLine = lines.getOrNull(scrollTargetMinIndex)
@@ -1662,7 +1676,11 @@ fun Lyrics(
             ) {
                 FilledTonalButton(onClick = {
                     scope.launch {
-                        performSmoothPageScroll(currentLineIndex, 1500)
+                        // For hierarchical lyrics, use the active line indices range
+                        // For standard lyrics, use currentLineIndex for both min and max
+                        val minIdx = scrollTargetMinIndex.takeIf { it != -1 } ?: currentLineIndex
+                        val maxIdx = scrollTargetMaxIndex.takeIf { it != -1 } ?: currentLineIndex
+                        performSmoothPageScroll(minIdx, maxIdx, 1500)
                     }
                     isAutoScrollEnabled = true
                 }) {
