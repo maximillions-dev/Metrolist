@@ -300,6 +300,7 @@ fun HierarchicalLyricsLine(
         if (currentPosition > lineEndTime) line.words.lastIndex else -1
     }
 
+
     val activeWord = line.words.getOrNull(activeWordIndex)
 
     Box(
@@ -308,14 +309,46 @@ fun HierarchicalLyricsLine(
             .padding(horizontal = 24.dp, vertical = 4.dp)
     ) {
         if (lyricsGlowEffect) {
+             val chainedGlowWords = remember(line.words) {
+                 val glowSet = mutableSetOf<com.metrolist.music.lyrics.LyricWord>()
+                 var currentChain = mutableListOf<com.metrolist.music.lyrics.LyricWord>()
+                 
+                 line.words.forEachIndexed { index, word -> 
+                     if (currentChain.isEmpty()) {
+                         currentChain.add(word)
+                     } else {
+                         val prevWord = currentChain.last()
+                         val gap = (word.startTime * 1000) - (prevWord.endTime * 1000)
+                         if (gap <= 50) { // 50ms threshold for connected words
+                             currentChain.add(word)
+                         } else {
+                             // Check previous chain
+                             val chainDuration = (currentChain.last().endTime * 1000) - (currentChain.first().startTime * 1000)
+                             if (chainDuration >= 1700) {
+                                 glowSet.addAll(currentChain)
+                             }
+                             currentChain = mutableListOf(word)
+                         }
+                     }
+                 }
+                 // Check last chain
+                 if (currentChain.isNotEmpty()) {
+                     val chainDuration = (currentChain.last().endTime * 1000) - (currentChain.first().startTime * 1000)
+                     if (chainDuration >= 1700) {
+                         glowSet.addAll(currentChain)
+                     }
+                 }
+                 glowSet
+             }
+
              val glowingText = buildAnnotatedString {
                 line.words.forEach { word ->
                     val wordStartMs = (word.startTime * 1000).toLong()
                     val wordEndMs = (word.endTime * 1000).toLong()
                     val wordDuration = wordEndMs - wordStartMs
 
-                    // Only glow if word is long enough
-                    if (wordDuration >= 1700) {
+                    // Only glow if word is long enough OR part of a long chain
+                    if (wordDuration >= 1700 || chainedGlowWords.contains(word)) {
                         val fadeInDuration = 600f
                         val fadeOutDuration = 600f
                         
