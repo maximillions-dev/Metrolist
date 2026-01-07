@@ -308,22 +308,30 @@ fun HierarchicalLyricsLine(
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 4.dp)
     ) {
+
         if (lyricsGlowEffect) {
              val chainedGlowWords = remember(line.words) {
-                 val glowSet = mutableSetOf<com.metrolist.music.lyrics.LyricWord>()
-                 var currentChain = mutableListOf<com.metrolist.music.lyrics.LyricWord>()
+                 val glowSet = mutableSetOf<com.metrolist.music.lyrics.Word>()
+                 var currentChain = mutableListOf<com.metrolist.music.lyrics.Word>()
                  
                  line.words.forEachIndexed { index, word -> 
                      if (currentChain.isEmpty()) {
                          currentChain.add(word)
                      } else {
                          val prevWord = currentChain.last()
-                         val gap = (word.startTime * 1000) - (prevWord.endTime * 1000)
-                         if (gap <= 50) { // 50ms threshold for connected words
+                         // Calculate gap in milliseconds
+                         val prevEndMs = (prevWord.endTime * 1000).toLong()
+                         val currStartMs = (word.startTime * 1000).toLong()
+                         val gap = currStartMs - prevEndMs
+                         
+                         if (gap <= 50) { // 50ms threshold to consider words connected
                              currentChain.add(word)
                          } else {
-                             // Check previous chain
-                             val chainDuration = (currentChain.last().endTime * 1000) - (currentChain.first().startTime * 1000)
+                             // Check previous chain duration
+                             val chainStartMs = (currentChain.first().startTime * 1000).toLong()
+                             val chainEndMs = (currentChain.last().endTime * 1000).toLong()
+                             val chainDuration = chainEndMs - chainStartMs
+                             
                              if (chainDuration >= 1700) {
                                  glowSet.addAll(currentChain)
                              }
@@ -333,7 +341,10 @@ fun HierarchicalLyricsLine(
                  }
                  // Check last chain
                  if (currentChain.isNotEmpty()) {
-                     val chainDuration = (currentChain.last().endTime * 1000) - (currentChain.first().startTime * 1000)
+                     val chainStartMs = (currentChain.first().startTime * 1000).toLong()
+                     val chainEndMs = (currentChain.last().endTime * 1000).toLong()
+                     val chainDuration = chainEndMs - chainStartMs
+                     
                      if (chainDuration >= 1700) {
                          glowSet.addAll(currentChain)
                      }
