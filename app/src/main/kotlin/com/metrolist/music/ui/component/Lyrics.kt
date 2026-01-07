@@ -291,6 +291,8 @@ fun HierarchicalLyricsLine(
         lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
     )
 
+
+    // Use raw playback position for smoother animation
     val activeWordIndex = if (isActive) {
         line.words.indexOfLast { (it.startTime * 1000) <= currentPosition }
     } else {
@@ -299,45 +301,57 @@ fun HierarchicalLyricsLine(
     }
 
     val activeWord = line.words.getOrNull(activeWordIndex)
-    val wordsThatShouldGlow = remember(line.words) {
-        line.words.filter { it.glowStrength > 0 }.toSet()
-    }
-    val lineHasGlowWords = wordsThatShouldGlow.isNotEmpty()
-
-    val glowAnimatable = remember { Animatable(0f) }
-    LaunchedEffect(isActive, lineHasGlowWords, lyricsGlowEffect) {
-        if (isActive && lineHasGlowWords && lyricsGlowEffect) {
-            glowAnimatable.animateTo(
-                targetValue = MAX_GLOW_RADIUS,
-                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
-            )
-        } else {
-            glowAnimatable.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
-            )
-        }
-    }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 4.dp)
     ) {
-        val glowRadius = glowAnimatable.value
-        if (glowRadius > 0.1f) {
-            val glowShadow = remember(glowRadius, activeColor) {
-                Shadow(
-                    color = activeColor.copy(alpha = (glowRadius / GLOW_ALPHA_DIVISOR).coerceIn(0.2f, 1.0f)),
-                    offset = Offset.Zero,
-                    blurRadius = glowRadius
-                )
-            }
-
-            val glowingText = buildAnnotatedString {
+        if (lyricsGlowEffect) {
+             val glowingText = buildAnnotatedString {
                 line.words.forEach { word ->
-                    if (wordsThatShouldGlow.contains(word)) {
-                        withStyle(style = SpanStyle(shadow = glowShadow)) {
+                    val wordStartMs = (word.startTime * 1000).toLong()
+                    val wordEndMs = (word.endTime * 1000).toLong()
+                    val wordDuration = wordEndMs - wordStartMs
+
+                    // Only glow if word is long enough
+                    if (wordDuration >= 1700) {
+                        val fadeInDuration = 600f
+                        val fadeOutDuration = 600f
+                        
+                        val timeSinceStart = (currentPosition - wordStartMs).toFloat()
+                        val timeSinceEnd = (currentPosition - wordEndMs).toFloat()
+
+                        val glowAlpha = when {
+                            // Before word starts: No glow
+                            currentPosition < wordStartMs -> 0f
+                            
+                            // During word: Fade in or stay max
+                            currentPosition in wordStartMs..wordEndMs -> {
+                                (timeSinceStart / fadeInDuration).coerceIn(0f, 1f)
+                            }
+                            
+                            // After word: Fade out
+                            currentPosition > wordEndMs -> {
+                                1f - (timeSinceEnd / fadeOutDuration).coerceIn(0f, 1f)
+                            }
+                            
+                            else -> 0f
+                        }
+                        
+                        // Apply ease-in-out for smoother alpha
+                        val smoothedAlpha = glowAlpha * glowAlpha * (3f - 2f * glowAlpha)
+
+                        if (smoothedAlpha > 0.01f) {
+                             val glowShadow = Shadow(
+                                color = activeColor.copy(alpha = (smoothedAlpha * 0.8f).coerceIn(0f, 1f)),
+                                offset = Offset.Zero,
+                                blurRadius = MAX_GLOW_RADIUS * smoothedAlpha
+                            )
+                            withStyle(style = SpanStyle(shadow = glowShadow)) {
+                                append(word.text)
+                            }
+                        } else {
                             append(word.text)
                         }
                     } else {
