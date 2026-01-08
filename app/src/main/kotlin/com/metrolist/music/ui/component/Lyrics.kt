@@ -1016,9 +1016,6 @@ fun Lyrics(
                         })
                 ) {
                     itemsIndexed(lines, key = { index, item -> "$index-${item.startTime}" }) { index, line ->
-                        if (line.speaker is SpeakerRole.V1 || line.speaker is SpeakerRole.V2) {
-                            lastPrimarySpeaker = line.speaker
-                        }
 
                         val textAlign = when (line.speaker) {
                             is SpeakerRole.V1 -> if (hasV2) TextAlign.End else when (lyricsTextPosition) {
@@ -1027,10 +1024,24 @@ fun Lyrics(
                                 LyricsPosition.RIGHT -> TextAlign.Right
                             }
                             is SpeakerRole.V2 -> TextAlign.Start
-                            is SpeakerRole.BG -> if (lastPrimarySpeaker is SpeakerRole.V1 && hasV2) TextAlign.End else if (lastPrimarySpeaker is SpeakerRole.V2) TextAlign.Start else when (lyricsTextPosition) {
-                                LyricsPosition.LEFT -> TextAlign.Left
-                                LyricsPosition.CENTER -> TextAlign.Center
-                                LyricsPosition.RIGHT -> TextAlign.Right
+                            is SpeakerRole.BG -> {
+                                // Look back to find the last prominent speaker
+                                var effectiveSpeaker: SpeakerRole? = null
+                                for (i in index - 1 downTo 0) {
+                                    val prevSpeaker = lines[i].speaker
+                                    if (prevSpeaker is SpeakerRole.V1 || prevSpeaker is SpeakerRole.V2) {
+                                        effectiveSpeaker = prevSpeaker
+                                        break
+                                    }
+                                }
+                                
+                                if (effectiveSpeaker is SpeakerRole.V1 && hasV2) TextAlign.End 
+                                else if (effectiveSpeaker is SpeakerRole.V2) TextAlign.Start 
+                                else when (lyricsTextPosition) {
+                                    LyricsPosition.LEFT -> TextAlign.Left
+                                    LyricsPosition.CENTER -> TextAlign.Center
+                                    LyricsPosition.RIGHT -> TextAlign.Right
+                                }
                             }
                             else -> when (lyricsTextPosition) {
                                 LyricsPosition.LEFT -> TextAlign.Left
