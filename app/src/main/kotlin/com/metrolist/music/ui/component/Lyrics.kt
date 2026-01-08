@@ -309,22 +309,28 @@ fun HierarchicalLyricsLine(
             .padding(horizontal = 24.dp, vertical = 4.dp)
     ) {
 
+
         if (lyricsGlowEffect) {
-             val chainedGlowWords = remember(line.words) {
-                 val glowSet = mutableSetOf<com.metrolist.music.lyrics.Word>()
+             // Identify words that deserve "High Intensity" glow
+             val highIntensityWords = remember(line.words) {
+                 val highIntensitySet = mutableSetOf<com.metrolist.music.lyrics.Word>()
                  var currentChain = mutableListOf<com.metrolist.music.lyrics.Word>()
                  
-                 line.words.forEachIndexed { index, word -> 
+                 line.words.forEach { word -> 
+                     val wordDuration = (word.endTime * 1000) - (word.startTime * 1000)
+                     if (wordDuration >= 1700) {
+                         highIntensitySet.add(word)
+                     }
+
                      if (currentChain.isEmpty()) {
                          currentChain.add(word)
                      } else {
                          val prevWord = currentChain.last()
-                         // Calculate gap in milliseconds
                          val prevEndMs = (prevWord.endTime * 1000).toLong()
                          val currStartMs = (word.startTime * 1000).toLong()
                          val gap = currStartMs - prevEndMs
                          
-                         if (gap <= 50) { // 50ms threshold to consider words connected
+                         if (gap <= 50) { 
                              currentChain.add(word)
                          } else {
                              // Check previous chain duration
@@ -333,7 +339,8 @@ fun HierarchicalLyricsLine(
                              val chainDuration = chainEndMs - chainStartMs
                              
                              if (chainDuration >= 1700) {
-                                 glowSet.addAll(currentChain)
+                                 // Add the LAST word of the long chain
+                                 highIntensitySet.add(currentChain.last())
                              }
                              currentChain = mutableListOf(word)
                          }
@@ -346,10 +353,10 @@ fun HierarchicalLyricsLine(
                      val chainDuration = chainEndMs - chainStartMs
                      
                      if (chainDuration >= 1700) {
-                         glowSet.addAll(currentChain)
+                         highIntensitySet.add(currentChain.last())
                      }
                  }
-                 glowSet
+                 highIntensitySet
              }
 
              val glowingText = buildAnnotatedString {
@@ -358,44 +365,48 @@ fun HierarchicalLyricsLine(
                     val wordEndMs = (word.endTime * 1000).toLong()
                     val wordDuration = wordEndMs - wordStartMs
 
-                    // Only glow if word is long enough OR part of a long chain
-                    if (wordDuration >= 1700 || chainedGlowWords.contains(word)) {
-                        val fadeInDuration = 600f
-                        val fadeOutDuration = 600f
-                        
-                        val timeSinceStart = (currentPosition - wordStartMs).toFloat()
-                        val timeSinceEnd = (currentPosition - wordEndMs).toFloat()
+                    // Determine intensity
+                    val isHighIntensity = highIntensityWords.contains(word)
+                    
+                    // Config based on intensity
+                    val maxAlpha = if (isHighIntensity) 1.0f else 0.6f
+                    val maxRadius = if (isHighIntensity) MAX_GLOW_RADIUS else MAX_GLOW_RADIUS * 0.6f
+                    val fadeInDuration = 200f // Fast attack for "bouncy" feel
+                    val fadeOutDuration = if (isHighIntensity) 800f else 400f
+                    
+                    val timeSinceStart = (currentPosition - wordStartMs).toFloat()
+                    val timeSinceEnd = (currentPosition - wordEndMs).toFloat()
 
-                        val glowAlpha = when {
-                            // Before word starts: No glow
-                            currentPosition < wordStartMs -> 0f
-                            
-                            // During word: Fade in or stay max
-                            currentPosition in wordStartMs..wordEndMs -> {
-                                (timeSinceStart / fadeInDuration).coerceIn(0f, 1f)
-                            }
-                            
-                            // After word: Fade out
-                            currentPosition > wordEndMs -> {
-                                1f - (timeSinceEnd / fadeOutDuration).coerceIn(0f, 1f)
-                            }
-                            
-                            else -> 0f
+                    val rawAlpha = when {
+                        // Before word: No glow
+                        currentPosition < wordStartMs -> 0f
+                        
+                        // Fade In (Fast)
+                        currentPosition in wordStartMs..wordEndMs -> {
+                            val progress = (timeSinceStart / fadeInDuration).coerceIn(0f, 1f)
+                            // "Bouncy" ease out (overshoot-like or just quadOut)
+                            // Using QuadOut for snappiness: 1 - (1-x)^2
+                            1f - (1f - progress) * (1f - progress)
                         }
                         
-                        // Apply ease-in-out for smoother alpha
-                        val smoothedAlpha = glowAlpha * glowAlpha * (3f - 2f * glowAlpha)
+                        // Fade Out
+                        currentPosition > wordEndMs -> {
+                            val progress = (timeSinceEnd / fadeOutDuration).coerceIn(0f, 1f)
+                            1f - progress
+                        }
+                        
+                        else -> 0f
+                    }
+                    
+                    val finalAlpha = rawAlpha * maxAlpha
 
-                        if (smoothedAlpha > 0.01f) {
-                             val glowShadow = Shadow(
-                                color = activeColor.copy(alpha = (smoothedAlpha * 0.8f).coerceIn(0f, 1f)),
-                                offset = Offset.Zero,
-                                blurRadius = MAX_GLOW_RADIUS * smoothedAlpha
-                            )
-                            withStyle(style = SpanStyle(shadow = glowShadow)) {
-                                append(word.text)
-                            }
-                        } else {
+                    if (finalAlpha > 0.01f) {
+                         val glowShadow = Shadow(
+                            color = activeColor.copy(alpha = (finalAlpha * 0.8f).coerceIn(0f, 1f)),
+                            offset = Offset.Zero,
+                            blurRadius = maxRadius * finalAlpha // Scale radius with alpha for "pulse" effect
+                        )
+                        withStyle(style = SpanStyle(shadow = glowShadow)) {
                             append(word.text)
                         }
                     } else {
