@@ -431,7 +431,7 @@ fun HierarchicalLyricsLine(
                     val measuredText = textMeasurer.measure(
                         text = AnnotatedString(line.text),
                         style = textStyle,
-                        constraints = androidx.compose.ui.unit.Constraints(maxWidth = size.width.toInt())
+                        constraints = androidx.compose.ui.unit.Constraints.fixedWidth(size.width.toInt())
                     )
 
                     onDrawBehind {
