@@ -24,6 +24,7 @@ object AppleMusicLyricsProvider : LyricsProvider {
         title: String,
         artist: String,
         duration: Int,
+        album: String?,
     ): Result<String> {
         val userAgent = "${BuildConfig.APPLICATION_ID}/${BuildConfig.VERSION_NAME}"
         return AppleMusic.fetchLyrics(title, artist, userAgent)
