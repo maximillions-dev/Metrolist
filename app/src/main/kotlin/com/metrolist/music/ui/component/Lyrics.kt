@@ -473,20 +473,28 @@ fun HierarchicalLyricsLine(
                             }
 
                             if (horizontalClip > 0) {
-                                val pathForClipping = androidx.compose.ui.graphics.Path()
                                 val currentLineIndex = measuredText.getLineForOffset(totalCharOffsetStart)
-                                for (i in 0 until currentLineIndex) {
-                                    pathForClipping.addRect(Rect(0f, measuredText.getLineTop(i), size.width, measuredText.getLineBottom(i)))
+                                if (currentLineIndex > 0) {
+                                    clipRect(
+                                        top = 0f,
+                                        bottom = measuredText.getLineBottom(currentLineIndex - 1)
+                                    ) {
+                                        drawText(
+                                            textLayoutResult = measuredText,
+                                            color = activeColor
+                                        )
+                                    }
                                 }
-                                pathForClipping.addRect(Rect(0f, measuredText.getLineTop(currentLineIndex), horizontalClip, measuredText.getLineBottom(currentLineIndex)))
-
-                                drawContext.canvas.save()
-                                drawContext.canvas.clipPath(pathForClipping)
-                                drawText(
-                                    textLayoutResult = measuredText,
-                                    color = activeColor
-                                )
-                                drawContext.canvas.restore()
+                                clipRect(
+                                    top = measuredText.getLineTop(currentLineIndex),
+                                    right = horizontalClip,
+                                    bottom = measuredText.getLineBottom(currentLineIndex)
+                                ) {
+                                    drawText(
+                                        textLayoutResult = measuredText,
+                                        color = activeColor
+                                    )
+                                }
                             }
                         }
                     }
