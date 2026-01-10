@@ -282,10 +282,14 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         // Force high refresh rate (120Hz) for smooth animations
+        // Filter modes by current resolution to avoid DPI changes on Android 16+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val display = display ?: windowManager.defaultDisplay
+            val currentMode = display.mode
             val supportedModes = display.supportedModes
-            val highRefreshRateMode = supportedModes.maxByOrNull { it.refreshRate }
+            val highRefreshRateMode = supportedModes
+                .filter { it.physicalWidth == currentMode.physicalWidth && it.physicalHeight == currentMode.physicalHeight }
+                .maxByOrNull { it.refreshRate }
             highRefreshRateMode?.let { mode ->
                 window.attributes = window.attributes.also { params ->
                     params.preferredDisplayModeId = mode.modeId
@@ -567,12 +571,6 @@ class MainActivity : ComponentActivity() {
                     }
                 )
 
-                val searchBarScrollBehavior = appBarScrollBehavior(
-                    canScroll = {
-                        !inSearchScreen &&
-                            (playerBottomSheetState.isCollapsed || playerBottomSheetState.isDismissed)
-                    },
-                )
                 val topAppBarScrollBehavior = appBarScrollBehavior(
                     canScroll = {
                         !inSearchScreen &&
@@ -606,11 +604,10 @@ class MainActivity : ComponentActivity() {
                     // Reset scroll behavior for main navigation items
                     if (navigationItems.fastAny { it.route == navBackStackEntry?.destination?.route }) {
                         if (navigationItems.fastAny { it.route == previousTab }) {
-                            searchBarScrollBehavior.state.resetHeightOffset()
+                            topAppBarScrollBehavior.state.resetHeightOffset()
                         }
                     }
 
-                    searchBarScrollBehavior.state.resetHeightOffset()
                     topAppBarScrollBehavior.state.resetHeightOffset()
 
                     // Track previous tab for animations
@@ -765,7 +762,7 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             }
                                         },
-                                        scrollBehavior = searchBarScrollBehavior,
+                                        scrollBehavior = topAppBarScrollBehavior,
                                         colors = TopAppBarDefaults.topAppBarColors(
                                             containerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer,
                                             scrolledContainerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer,
@@ -786,7 +783,7 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         bottomBar = {
-                            val onNavItemClick: (Screens, Boolean) -> Unit = remember(navController, coroutineScope, searchBarScrollBehavior, playerBottomSheetState) {
+                            val onNavItemClick: (Screens, Boolean) -> Unit = remember(navController, coroutineScope, topAppBarScrollBehavior, playerBottomSheetState) {
                                 { screen: Screens, isSelected: Boolean ->
                                     if (playerBottomSheetState.isExpanded) {
                                         playerBottomSheetState.collapseSoft()
@@ -795,7 +792,7 @@ class MainActivity : ComponentActivity() {
                                     if (isSelected) {
                                         navController.currentBackStackEntry?.savedStateHandle?.set("scrollToTop", true)
                                         coroutineScope.launch {
-                                            searchBarScrollBehavior.state.resetHeightOffset()
+                                            topAppBarScrollBehavior.state.resetHeightOffset()
                                         }
                                     } else {
                                         navController.navigate(screen.route) {
@@ -885,10 +882,10 @@ class MainActivity : ComponentActivity() {
                         },
                         modifier = Modifier
                             .fillMaxSize()
-                            .nestedScroll(searchBarScrollBehavior.nestedScrollConnection)
+                            .nestedScroll(topAppBarScrollBehavior.nestedScrollConnection)
                     ) {
                         Row(Modifier.fillMaxSize()) {
-                            val onRailItemClick: (Screens, Boolean) -> Unit = remember(navController, coroutineScope, searchBarScrollBehavior, playerBottomSheetState) {
+                            val onRailItemClick: (Screens, Boolean) -> Unit = remember(navController, coroutineScope, topAppBarScrollBehavior, playerBottomSheetState) {
                                 { screen: Screens, isSelected: Boolean ->
                                     if (playerBottomSheetState.isExpanded) {
                                         playerBottomSheetState.collapseSoft()
@@ -897,7 +894,7 @@ class MainActivity : ComponentActivity() {
                                     if (isSelected) {
                                         navController.currentBackStackEntry?.savedStateHandle?.set("scrollToTop", true)
                                         coroutineScope.launch {
-                                            searchBarScrollBehavior.state.resetHeightOffset()
+                                            topAppBarScrollBehavior.state.resetHeightOffset()
                                         }
                                     } else {
                                         navController.navigate(screen.route) {
@@ -984,15 +981,7 @@ class MainActivity : ComponentActivity() {
                                         else
                                             slideOutHorizontally { it / 8 } + fadeOut(tween(200))
                                     },
-                                    modifier = Modifier.nestedScroll(
-                                        if (navigationItems.fastAny { it.route == navBackStackEntry?.destination?.route } ||
-                                            inSearchScreen
-                                        ) {
-                                            searchBarScrollBehavior.nestedScrollConnection
-                                        } else {
-                                            topAppBarScrollBehavior.nestedScrollConnection
-                                        }
-                                    )
+                                    modifier = Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection)
                                 ) {
                                     navigationBuilder(
                                         navController = navController,

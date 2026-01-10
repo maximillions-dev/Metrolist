@@ -8,8 +8,6 @@
 package com.metrolist.music.playback
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import androidx.core.graphics.drawable.toBitmap
 import coil3.ImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
@@ -108,6 +106,7 @@ import com.metrolist.music.constants.MediaSessionConstants.CommandToggleRepeatMo
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleShuffle
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleStartRadio
 import com.metrolist.music.constants.PauseListenHistoryKey
+import com.metrolist.music.constants.PauseOnMute
 import com.metrolist.music.constants.PersistentQueueKey
 import com.metrolist.music.constants.PlayerVolumeKey
 import com.metrolist.music.constants.RepeatModeKey
@@ -342,6 +341,7 @@ class MusicService :
                     false,
                 ).setSeekBackIncrementMs(5000)
                 .setSeekForwardIncrementMs(5000)
+                .setDeviceVolumeControlEnabled(true)
                 .build()
                 .apply {
                     addListener(this@MusicService)
@@ -1292,7 +1292,7 @@ class MusicService :
                     withContext(Dispatchers.Main) {
                         if (loudness != null) {
                             val loudnessDb = loudness.toFloat()
-                            val targetGain = (-loudnessDb * 100).toInt() + 400
+                            val targetGain = (-loudnessDb * 100).toInt()
                             val clampedGain = targetGain.coerceIn(MIN_GAIN_MB, MAX_GAIN_MB)
                             
                             Log.d(TAG, "Calculated raw normalization gain: $targetGain mB (from loudness: $loudnessDb)")
@@ -1495,6 +1495,17 @@ class MusicService :
             }
         }
 
+        // Update Discord RPC when media item transitions (for continuous playback)
+        if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION) && player.isPlaying) {
+            scope.launch {
+                // Small delay to ensure currentSong is updated from the database
+                delay(100)
+                currentSong.value?.let { song ->
+                    discordRpc?.updateSong(song, player.currentPosition, player.playbackParameters.speed, dataStore.get(DiscordUseDetailsKey, false))
+                }
+            }
+        }
+
         // Scrobbling
         if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED)) {
             scrobbleManager?.onPlayerStateChanged(player.isPlaying, player.currentMetadata, duration = player.duration)
@@ -1617,6 +1628,14 @@ class MusicService :
         } else {
             Log.d(TAG, "Stopping playback due to error")
             stopOnError()
+        }
+    }
+
+    override fun onDeviceVolumeChanged(volume: Int, muted: Boolean) {
+        super.onDeviceVolumeChanged(volume, muted)
+        val pom = dataStore.get(PauseOnMute, false)
+        if ((volume == 0 || muted) && pom) {
+            player.pause()
         }
     }
 
@@ -2082,8 +2101,8 @@ class MusicService :
         const val MAX_CONSECUTIVE_ERR = 5
         const val MAX_RETRY_COUNT = 10
         // Constants for audio normalization
-        private const val MAX_GAIN_MB = 1000 // Maximum gain in millibels (8 dB)
-        private const val MIN_GAIN_MB = -1000 // Minimum gain in millibels (-8 dB)
+        private const val MAX_GAIN_MB = 300 // Maximum gain in millibels (3 dB)
+        private const val MIN_GAIN_MB = -1500 // Minimum gain in millibels (-15 dB)
 
         private const val TAG = "MusicService"
     }

@@ -23,12 +23,14 @@ val DefaultOpenTabKey = stringPreferencesKey("defaultOpenTab")
 val SlimNavBarKey = booleanPreferencesKey("slimNavBar")
 val GridItemsSizeKey = stringPreferencesKey("gridItemSize")
 val SliderStyleKey = stringPreferencesKey("sliderStyle")
+val SquigglySliderKey = booleanPreferencesKey("squigglySlider")
 val SwipeToSongKey = booleanPreferencesKey("SwipeToSong")
 val SwipeToRemoveSongKey = booleanPreferencesKey("SwipeToRemoveSong")
 val UseNewPlayerDesignKey= booleanPreferencesKey("useNewPlayerDesign")
 val UseNewMiniPlayerDesignKey = booleanPreferencesKey("useNewMiniPlayerDesign")
 val HidePlayerThumbnailKey = booleanPreferencesKey("hidePlayerThumbnail")
 val SeekExtraSeconds = booleanPreferencesKey("seekExtraSeconds")
+val PauseOnMute = booleanPreferencesKey("pauseOnMute")
 val DeveloperModeKey = booleanPreferencesKey("developerMode")
 
 enum class SliderStyle {
@@ -45,6 +47,7 @@ val EnableKugouKey = booleanPreferencesKey("enableKugou")
 val EnableLrcLibKey = booleanPreferencesKey("enableLrclib")
 val EnableBetterLyricsKey = booleanPreferencesKey("enableBetterLyrics")
 val EnableAppleMusicKey = booleanPreferencesKey("enableAppleMusic")
+val EnableSimpMusicKey = booleanPreferencesKey("enableSimpMusic")
 val HideExplicitKey = booleanPreferencesKey("hideExplicit")
 val HideVideoSongsKey = booleanPreferencesKey("hideVideoSongs")
 val ProxyEnabledKey = booleanPreferencesKey("proxyEnabled")
@@ -117,6 +120,8 @@ val AlbumSortTypeKey = stringPreferencesKey("albumSortType")
 val AlbumSortDescendingKey = booleanPreferencesKey("albumSortDescending")
 val PlaylistSortTypeKey = stringPreferencesKey("playlistSortType")
 val PlaylistSortDescendingKey = booleanPreferencesKey("playlistSortDescending")
+val AddToPlaylistSortTypeKey = stringPreferencesKey("addToPlaylistSortType")
+val AddToPlaylistSortDescendingKey = booleanPreferencesKey("playlistSortDescending")
 val ArtistSongSortTypeKey = stringPreferencesKey("artistSongSortType")
 val ArtistSongSortDescendingKey = booleanPreferencesKey("artistSongSortDescending")
 val MixSortTypeKey = stringPreferencesKey("mixSortType")
@@ -296,6 +301,7 @@ enum class PreferredLyricsProvider {
     LRCLIB,
     KUGOU,
     BETTER_LYRICS,
+    SIMPMUSIC,
 }
 
 enum class PlayerButtonsStyle {

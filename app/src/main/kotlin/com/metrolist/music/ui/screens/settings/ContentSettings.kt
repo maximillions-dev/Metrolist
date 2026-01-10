@@ -101,6 +101,7 @@ fun ContentSettings(
     val (enableLrclib, onEnableLrclibChange) = rememberPreference(key = EnableLrcLibKey, defaultValue = true)
     val (enableBetterLyrics, onEnableBetterLyricsChange) = rememberPreference(key = EnableBetterLyricsKey, defaultValue = true)
     val (enableAppleMusic, onEnableAppleMusicChange) = rememberPreference(key = EnableAppleMusicKey, defaultValue = true)
+    val (enableSimpMusic, onEnableSimpMusicChange) = rememberPreference(key = EnableSimpMusicKey, defaultValue = true)
     val (preferredProvider, onPreferredProviderChange) =
         rememberEnumPreference(
             key = PreferredLyricsProviderKey,
@@ -313,6 +314,7 @@ fun ContentSettings(
                     PreferredLyricsProvider.LRCLIB -> "LrcLib"
                     PreferredLyricsProvider.KUGOU -> "KuGou"
                     PreferredLyricsProvider.BETTER_LYRICS -> "Better Lyrics"
+                    PreferredLyricsProvider.SIMPMUSIC -> "SimpMusic"
                 }
             }
         )
@@ -611,6 +613,27 @@ fun ContentSettings(
                 ),
                 Material3SettingsItem(
                     icon = painterResource(R.drawable.lyrics),
+                    title = { Text(stringResource(R.string.enable_simpmusic)) },
+                    description = { Text(stringResource(R.string.enable_simpmusic_desc)) },
+                    trailingContent = {
+                        Switch(
+                            checked = enableSimpMusic,
+                            onCheckedChange = onEnableSimpMusicChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (enableSimpMusic) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = { onEnableSimpMusicChange(!enableSimpMusic) }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.lyrics),
                     title = { Text(stringResource(R.string.set_first_lyrics_provider)) },
                     description = {
                         Text(
@@ -619,6 +642,7 @@ fun ContentSettings(
                                 PreferredLyricsProvider.LRCLIB -> "LrcLib"
                                 PreferredLyricsProvider.KUGOU -> "KuGou"
                                 PreferredLyricsProvider.BETTER_LYRICS -> "Better Lyrics"
+                                PreferredLyricsProvider.SIMPMUSIC -> "SimpMusic"
                             }
                         )
                     },

@@ -144,6 +144,7 @@ import com.metrolist.music.constants.PlayerHorizontalPadding
 import com.metrolist.music.constants.QueuePeekHeight
 import com.metrolist.music.constants.SliderStyle
 import com.metrolist.music.constants.SliderStyleKey
+import com.metrolist.music.constants.SquigglySliderKey
 import com.metrolist.music.constants.HidePlayerThumbnailKey
 import com.metrolist.music.constants.UseNewPlayerDesignKey
 import com.metrolist.music.db.entities.LyricsEntity
@@ -180,6 +181,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.metrolist.music.ui.component.WavySlider
+import me.saket.squiggles.SquigglySlider
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -264,6 +266,7 @@ fun BottomSheetPlayer(
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsState()
     val canSkipNext by playerConnection.canSkipNext.collectAsState()
     val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.DEFAULT)
+    val squigglySlider by rememberPreference(SquigglySliderKey, defaultValue = false)
     
     // Cast state
     val castHandler = playerConnection.service.castConnectionHandler
@@ -283,6 +286,16 @@ fun BottomSheetPlayer(
     // Convenience accessors for local use
     var position by positionState
     var duration by durationState
+    
+    val effectivePosition by remember {
+        derivedStateOf {
+            if (isCasting) {
+                castPosition
+            } else {
+                position
+            }
+        }
+    }
     
     var sliderPosition by remember {
         mutableStateOf<Long?>(null)
@@ -1061,12 +1074,12 @@ fun BottomSheetPlayer(
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(24.dp))
 
             when (sliderStyle) {
                 SliderStyle.DEFAULT -> {
                     Slider(
-                        value = (sliderPosition ?: position).toFloat(),
+                        value = (sliderPosition ?: effectivePosition).toFloat(),
                         valueRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat()),
                         onValueChange = {
                             sliderPosition = it.toLong()
@@ -1089,33 +1102,60 @@ fun BottomSheetPlayer(
                 }
 
                 SliderStyle.WAVY -> {
-                    WavySlider(
-                        value = (sliderPosition ?: position).toFloat(),
-                        valueRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat()),
-                        onValueChange = {
-                            sliderPosition = it.toLong()
-                        },
-                        onValueChangeFinished = {
-                            sliderPosition?.let {
-                                if (isCasting) {
-                                    castHandler?.seekTo(it)
-                                    lastManualSeekTime = System.currentTimeMillis()
-                                } else {
-                                    playerConnection.player.seekTo(it)
+                    if (squigglySlider) {
+                        SquigglySlider(
+                            value = (sliderPosition ?: effectivePosition).toFloat(),
+                            valueRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat()),
+                            onValueChange = {
+                                sliderPosition = it.toLong()
+                            },
+                            onValueChangeFinished = {
+                                sliderPosition?.let {
+                                    if (isCasting) {
+                                        castHandler?.seekTo(it)
+                                        lastManualSeekTime = System.currentTimeMillis()
+                                    } else {
+                                        playerConnection.player.seekTo(it)
+                                    }
+                                    position = it
                                 }
-                                position = it
-                            }
-                            sliderPosition = null
-                        },
-                        colors = PlayerSliderColors.getSliderColors(textButtonColor, playerBackground, useDarkTheme),
-                        modifier = Modifier.padding(horizontal = PlayerHorizontalPadding),
-                        isPlaying = effectiveIsPlaying
-                    )
+                                sliderPosition = null
+                            },
+                            modifier = Modifier.padding(horizontal = PlayerHorizontalPadding),
+                            squigglesSpec = SquigglySlider.SquigglesSpec(
+                                amplitude = if (effectiveIsPlaying) 2.dp else 0.dp,
+                                strokeWidth = 3.dp,
+                            ),
+                        )
+                    } else {
+                        WavySlider(
+                            value = (sliderPosition ?: effectivePosition).toFloat(),
+                            valueRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat()),
+                            onValueChange = {
+                                sliderPosition = it.toLong()
+                            },
+                            onValueChangeFinished = {
+                                sliderPosition?.let {
+                                    if (isCasting) {
+                                        castHandler?.seekTo(it)
+                                        lastManualSeekTime = System.currentTimeMillis()
+                                    } else {
+                                        playerConnection.player.seekTo(it)
+                                    }
+                                    position = it
+                                }
+                                sliderPosition = null
+                            },
+                            colors = PlayerSliderColors.getSliderColors(textButtonColor, playerBackground, useDarkTheme),
+                            modifier = Modifier.padding(horizontal = PlayerHorizontalPadding),
+                            isPlaying = effectiveIsPlaying
+                        )
+                    }
                 }
 
                 SliderStyle.SLIM -> {
                     Slider(
-                        value = (sliderPosition ?: position).toFloat(),
+                        value = (sliderPosition ?: effectivePosition).toFloat(),
                         valueRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat()),
                         onValueChange = {
                             sliderPosition = it.toLong()
@@ -1155,7 +1195,7 @@ fun BottomSheetPlayer(
                     .padding(horizontal = PlayerHorizontalPadding + 4.dp),
             ) {
                 Text(
-                    text = makeTimeString(sliderPosition ?: position),
+                    text = makeTimeString(sliderPosition ?: effectivePosition),
                     style = MaterialTheme.typography.labelMedium,
                     color = TextBackgroundColor,
                     maxLines = 1,
@@ -1171,7 +1211,7 @@ fun BottomSheetPlayer(
                 )
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(24.dp))
 
             AnimatedVisibility(
                 visible = !isFullScreen,
@@ -1463,7 +1503,11 @@ fun BottomSheetPlayer(
                             transitionSpec = { fadeIn() togetherWith fadeOut() }
                         ) { showLyrics ->
                             if (showLyrics) {
-                                InlineLyricsView(mediaMetadata = mediaMetadata, showLyrics = showLyrics)
+                                InlineLyricsView(
+                                    mediaMetadata = mediaMetadata,
+                                    showLyrics = showLyrics,
+                                    positionProvider = { effectivePosition }
+                                )
                             } else {
                                 Thumbnail(
                                     sliderPositionProvider = sliderPositionProvider,
@@ -1520,7 +1564,11 @@ fun BottomSheetPlayer(
                             transitionSpec = { fadeIn() togetherWith fadeOut() }
                         ) { showLyrics ->
                             if (showLyrics) {
-                                InlineLyricsView(mediaMetadata = mediaMetadata, showLyrics = showLyrics)
+                                InlineLyricsView(
+                                    mediaMetadata = mediaMetadata,
+                                    showLyrics = showLyrics,
+                                    positionProvider = { effectivePosition }
+                                )
                             } else {
                                 Thumbnail(
                                     sliderPositionProvider = sliderPositionProvider,
@@ -1572,7 +1620,11 @@ fun BottomSheetPlayer(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun InlineLyricsView(mediaMetadata: MediaMetadata?, showLyrics: Boolean) {
+fun InlineLyricsView(
+    mediaMetadata: MediaMetadata?,
+    showLyrics: Boolean,
+    positionProvider: () -> Long
+) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val currentLyrics by playerConnection.currentLyrics.collectAsState(initial = null)
     val lyrics = remember(currentLyrics) { currentLyrics?.lyrics?.trim() }
@@ -1622,7 +1674,7 @@ fun InlineLyricsView(mediaMetadata: MediaMetadata?, showLyrics: Boolean) {
             else -> {
                 val lyricsContent: @Composable () -> Unit = {
                     Lyrics(
-                        sliderPositionProvider = { playerConnection.player.currentPosition },
+                        sliderPositionProvider = positionProvider,
                         modifier = Modifier.padding(horizontal = 24.dp),
                         showLyrics = showLyrics
                     )

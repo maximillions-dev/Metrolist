@@ -46,6 +46,9 @@ constructor(
         if (preferences[EnableBetterLyricsKey] != false) {
             providerList.add(BetterLyricsProvider)
         }
+        if (preferences[EnableSimpMusicKey] != false) {
+            providerList.add(SimpMusicLyricsProvider)
+        }
         if (preferences[EnableLrcLibKey] != false) {
             providerList.add(LrcLibLyricsProvider)
         }
@@ -60,6 +63,7 @@ constructor(
             when (provider.name) {
                 "Apple Music" -> preferred != PreferredLyricsProvider.APPLE_MUSIC
                 "BetterLyrics" -> preferred != PreferredLyricsProvider.BETTER_LYRICS
+                "SimpMusic" -> preferred != PreferredLyricsProvider.SIMPMUSIC
                 "LrcLib" -> preferred != PreferredLyricsProvider.LRCLIB
                 "KuGou" -> preferred != PreferredLyricsProvider.KUGOU
                 else -> true
@@ -99,6 +103,7 @@ constructor(
                             mediaMetadata.title,
                             mediaMetadata.artists.joinToString { it.name },
                             mediaMetadata.duration,
+                            mediaMetadata.album?.title,
                         )
                         result.onSuccess { lyrics ->
                             return@async lyrics
@@ -124,6 +129,7 @@ constructor(
         songTitle: String,
         songArtists: String,
         duration: Int,
+        album: String? = null,
         callback: (LyricsResult) -> Unit,
     ) {
         currentLyricsJob?.cancel()
@@ -155,7 +161,7 @@ constructor(
             getProviders().forEach { provider ->
                 if (provider.isEnabled(context)) {
                     try {
-                        provider.getAllLyrics(mediaId, songTitle, songArtists, duration) { lyrics ->
+                        provider.getAllLyrics(mediaId, songTitle, songArtists, duration, album) { lyrics ->
                             val result = LyricsResult(provider.name, lyrics)
                             allResult += result
                             callback(result)
