@@ -314,48 +314,39 @@ fun HierarchicalLyricsLine(
              // Identify words that deserve "High Intensity" glow
              val highIntensityWords = remember(line.words) {
                  val highIntensitySet = mutableSetOf<com.metrolist.music.lyrics.Word>()
-                 var currentChain = mutableListOf<com.metrolist.music.lyrics.Word>()
-                 
-                 line.words.forEach { word -> 
+                 val chains = mutableListOf<MutableList<com.metrolist.music.lyrics.Word>>()
+                 var currentChain: MutableList<com.metrolist.music.lyrics.Word>? = null
+
+                 for (word in line.words) {
+                     // Individual long words always get a glow
                      val wordDuration = (word.endTime * 1000) - (word.startTime * 1000)
                      if (wordDuration >= 1700) {
                          highIntensitySet.add(word)
                      }
 
-                     if (currentChain.isEmpty()) {
-                         currentChain.add(word)
-                     } else {
-                         val prevWord = currentChain.last()
-                         val prevEndMs = (prevWord.endTime * 1000).toLong()
-                         val currStartMs = (word.startTime * 1000).toLong()
-                         val gap = currStartMs - prevEndMs
-                         
-                         if (gap <= 50) { 
-                             currentChain.add(word)
-                         } else {
-                             // Check previous chain duration
-                             val chainStartMs = (currentChain.first().startTime * 1000).toLong()
-                             val chainEndMs = (currentChain.last().endTime * 1000).toLong()
-                             val chainDuration = chainEndMs - chainStartMs
-                             
-                             if (chainDuration >= 1700) {
-                                 // Add the LAST word of the long chain
-                                 highIntensitySet.add(currentChain.last())
-                             }
+                     if (currentChain == null) {
+                         if (word.text.endsWith("-")) {
                              currentChain = mutableListOf(word)
+                             chains.add(currentChain)
+                         }
+                     } else {
+                         currentChain.add(word)
+                         if (!word.text.endsWith("-")) {
+                             currentChain = null
                          }
                      }
                  }
-                 // Check last chain
-                 if (currentChain.isNotEmpty()) {
-                     val chainStartMs = (currentChain.first().startTime * 1000).toLong()
-                     val chainEndMs = (currentChain.last().endTime * 1000).toLong()
+
+                 for (chain in chains) {
+                     val chainStartMs = (chain.first().startTime * 1000).toLong()
+                     val chainEndMs = (chain.last().endTime * 1000).toLong()
                      val chainDuration = chainEndMs - chainStartMs
-                     
+
                      if (chainDuration >= 1700) {
-                         highIntensitySet.add(currentChain.last())
+                         highIntensitySet.add(chain.last())
                      }
                  }
+
                  highIntensitySet
              }
 
