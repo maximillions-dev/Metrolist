@@ -47,6 +47,7 @@ val EnableKugouKey = booleanPreferencesKey("enableKugou")
 val EnableLrcLibKey = booleanPreferencesKey("enableLrclib")
 val EnableBetterLyricsKey = booleanPreferencesKey("enableBetterLyrics")
 val EnableSimpMusicKey = booleanPreferencesKey("enableSimpMusic")
+val EnableAppleMusicKey = booleanPreferencesKey("enableAppleMusic")
 val HideExplicitKey = booleanPreferencesKey("hideExplicit")
 val HideVideoSongsKey = booleanPreferencesKey("hideVideoSongs")
 val ProxyEnabledKey = booleanPreferencesKey("proxyEnabled")
@@ -299,6 +300,7 @@ enum class QuickPicks {
 }
 
 enum class PreferredLyricsProvider {
+    APPLE_MUSIC,
     LRCLIB,
     KUGOU,
     BETTER_LYRICS,
@@ -348,6 +350,7 @@ enum class LyricsAnimationStyle {
     SLIDE,
     KARAOKE,
     APPLE,
+    APPLE_ENHANCED,
 }
 
 val LyricsTextSizeKey = floatPreferencesKey("lyricsTextSize")
