@@ -23,5 +23,7 @@ data class LyricLine(
     val startTime: Float,
     val endTime: Float,
     val speaker: SpeakerRole,
-    val words: List<Word>
+    val words: List<Word>,
+    val bgLine: LyricLine? = null,  // Background vocal line that appears below this line
+    val parentSpeaker: SpeakerRole? = null  // For BG lines, the speaker of the parent line (for alignment)
 )
