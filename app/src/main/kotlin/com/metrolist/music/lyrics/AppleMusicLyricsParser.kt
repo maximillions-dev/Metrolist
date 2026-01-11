@@ -56,7 +56,7 @@ object AppleMusicLyricsParser {
         }
     }
 
-    private fun parseBgLine(content: String, nextLineStartTime: Float): LyricLine? {
+    private fun parseBgLine(content: String, nextLineStartTime: Float, parentSpeaker: SpeakerRole): LyricLine? {
         val parts = mutableListOf<Pair<Float, String>>()
         val partMatcher = partRegex.matcher(content)
         while (partMatcher.find()) {
@@ -96,15 +96,15 @@ object AppleMusicLyricsParser {
             startTime = lineStartTime,
             endTime = lineEndTime,
             speaker = SpeakerRole.BG,
-            words = processedWords
+            words = processedWords,
+            parentSpeaker = parentSpeaker
         )
     }
 
     fun parse(lyricsText: String): List<LyricLine> {
         val lines = mutableListOf<LyricLine>()
         val textLines = lyricsText.lines()
-        var pendingBgLine: LyricLine? = null
-        var lastMainLineSpeaker: SpeakerRole = SpeakerRole.NONE
+        var lastMainLineSpeaker: SpeakerRole = SpeakerRole.V1
 
         for (i in textLines.indices) {
             val line = textLines[i]
@@ -115,8 +115,10 @@ object AppleMusicLyricsParser {
                 val bgContent = bgMatcher.group(1) ?: ""
                 // Find next line start time for end time calculation
                 val nextLineStartTime = findNextLineStartTime(textLines, i + 1)
-                pendingBgLine = parseBgLine(bgContent, nextLineStartTime)
-                pendingBgLine = pendingBgLine?.copy(parentSpeaker = lastMainLineSpeaker)
+                val bgLine = parseBgLine(bgContent, nextLineStartTime, lastMainLineSpeaker)
+                if (bgLine != null) {
+                    lines.add(bgLine)
+                }
                 continue
             }
             
@@ -180,13 +182,6 @@ object AppleMusicLyricsParser {
                 val fullText = processedWords.joinToString(separator = "") { it.text }
                 val lineEndTime = processedWords.lastOrNull()?.endTime ?: lineStartTime
 
-                // If there's a pending BG line, attach it to the previous main line
-                if (pendingBgLine != null && lines.isNotEmpty()) {
-                    val lastLine = lines.removeLast()
-                    lines.add(lastLine.copy(bgLine = pendingBgLine))
-                    pendingBgLine = null
-                }
-
                 // Track the speaker for BG alignment
                 if (speaker != SpeakerRole.BG) {
                     lastMainLineSpeaker = speaker
@@ -202,12 +197,6 @@ object AppleMusicLyricsParser {
                     )
                 )
             }
-        }
-        
-        // Handle any remaining pending BG line
-        if (pendingBgLine != null && lines.isNotEmpty()) {
-            val lastLine = lines.removeLast()
-            lines.add(lastLine.copy(bgLine = pendingBgLine))
         }
         
         return lines

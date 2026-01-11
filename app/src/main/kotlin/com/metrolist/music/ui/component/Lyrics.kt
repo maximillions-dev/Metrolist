@@ -18,10 +18,12 @@ import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.animateContentSize
@@ -271,171 +273,6 @@ private sealed class LyricsContent {
 }
 
 @Composable
-fun BackgroundVocalLine(
-    bgLine: LyricLine,
-    parentIsActive: Boolean,
-    currentPosition: Long,
-    parentSpeaker: SpeakerRole?,
-    hasV2: Boolean,
-    inactiveColor: Color,
-    activeColor: Color,
-    lyricsTextPosition: LyricsPosition,
-) {
-    val lyricsTextSize by rememberPreference(LyricsTextSizeKey, 24f)
-    val lyricsLineSpacing by rememberPreference(LyricsLineSpacingKey, 1.3f)
-    val textMeasurer = rememberTextMeasurer()
-    
-    // BG line is smaller than main lyrics
-    val bgTextSize = lyricsTextSize * 0.7f
-    
-    // Determine alignment based on parent speaker
-    val textAlign = when {
-        parentSpeaker is SpeakerRole.V1 && hasV2 -> TextAlign.End
-        parentSpeaker is SpeakerRole.V2 -> TextAlign.Start
-        else -> when (lyricsTextPosition) {
-            LyricsPosition.LEFT -> TextAlign.Start
-            LyricsPosition.CENTER -> TextAlign.Center
-            LyricsPosition.RIGHT -> TextAlign.End
-        }
-    }
-    
-    val textStyle = TextStyle(
-        fontSize = bgTextSize.sp,
-        fontWeight = FontWeight.Medium,
-        textAlign = textAlign,
-        lineHeight = (bgTextSize * lyricsLineSpacing).sp,
-    )
-    
-    // BG line becomes active when parent line is active and BG start time has passed
-    val bgStartTimeMs = (bgLine.startTime * 1000).toLong()
-    val bgEndTimeMs = (bgLine.endTime * 1000).toLong()
-    val isBgActive = parentIsActive && currentPosition >= bgStartTimeMs && currentPosition <= bgEndTimeMs
-    val hasBgPassed = currentPosition > bgEndTimeMs
-    
-    // Animation for fade-in + bounce when becoming active
-    val visibilityAlpha by animateFloatAsState(
-        targetValue = when {
-            isBgActive -> 1f
-            hasBgPassed -> 0f
-            parentIsActive && currentPosition < bgStartTimeMs -> 0.3f  // Slight preview
-            else -> 0f
-        },
-        animationSpec = tween(
-            durationMillis = if (isBgActive) 200 else 300,
-            easing = FastOutSlowInEasing
-        ),
-        label = "bgVisibility"
-    )
-    
-    // Bounce scale animation
-    val bounceScale by animateFloatAsState(
-        targetValue = if (isBgActive) 1f else 0.95f,
-        animationSpec = tween(
-            durationMillis = 250,
-            easing = FastOutSlowInEasing
-        ),
-        label = "bgBounce"
-    )
-    
-    if (visibilityAlpha > 0.01f) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 2.dp)
-                .graphicsLayer {
-                    alpha = visibilityAlpha
-                    scaleX = bounceScale
-                    scaleY = bounceScale
-                }
-        ) {
-            // Calculate word-by-word fill progress for BG line
-            val activeWordIndex = if (isBgActive) {
-                bgLine.words.indexOfLast { (it.startTime * 1000) <= currentPosition }
-            } else if (hasBgPassed) {
-                bgLine.words.lastIndex
-            } else {
-                -1
-            }
-            
-            val activeWord = bgLine.words.getOrNull(activeWordIndex)
-            
-            Text(
-                text = bgLine.text,
-                style = textStyle,
-                color = Color.Transparent,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .drawWithCache {
-                        val measuredText = textMeasurer.measure(
-                            text = AnnotatedString(bgLine.text),
-                            style = textStyle,
-                            constraints = androidx.compose.ui.unit.Constraints.fixedWidth(size.width.toInt())
-                        )
-                        
-                        onDrawBehind {
-                            // Draw inactive text
-                            drawText(
-                                textLayoutResult = measuredText,
-                                color = inactiveColor.copy(alpha = 0.4f * visibilityAlpha),
-                            )
-                            
-                            if (activeWordIndex != -1) {
-                                val wordToProcess = activeWord ?: bgLine.words.last()
-                                val activeWordStartOffset = bgLine.words.take(activeWordIndex).sumOf { it.text.length }
-                                
-                                val wordProgress = if (isBgActive) {
-                                    val wordStartTime = (wordToProcess.startTime * 1000f)
-                                    val wordEndTime = (wordToProcess.endTime * 1000f)
-                                    val wordDuration = wordEndTime - wordStartTime
-                                    if (wordDuration > 0) {
-                                        ((currentPosition - wordStartTime) / wordDuration).coerceIn(0f, 1f)
-                                    } else 1f
-                                } else 1f
-                                
-                                val wordProgressFloat = wordToProcess.text.length * wordProgress
-                                val currentCharIndex = wordProgressFloat.toInt()
-                                val subCharProgress = wordProgressFloat - currentCharIndex
-                                
-                                val totalCharOffsetStart = activeWordStartOffset + currentCharIndex
-                                val totalCharOffsetEnd = (totalCharOffsetStart + 1).coerceAtMost(measuredText.layoutInput.text.length)
-                                
-                                val clipStart = measuredText.getHorizontalPosition(totalCharOffsetStart, true)
-                                val clipEnd = measuredText.getHorizontalPosition(totalCharOffsetEnd, true)
-                                
-                                val startLine = measuredText.getLineForOffset(totalCharOffsetStart)
-                                val endLine = measuredText.getLineForOffset(totalCharOffsetEnd)
-                                
-                                val horizontalClip = if (startLine != endLine || clipEnd < clipStart) {
-                                    clipStart
-                                } else {
-                                    clipStart + (clipEnd - clipStart) * subCharProgress
-                                }
-                                
-                                if (horizontalClip > 0) {
-                                    val pathForClipping = androidx.compose.ui.graphics.Path()
-                                    val currentLineIndex = measuredText.getLineForOffset(totalCharOffsetStart)
-                                    for (i in 0 until currentLineIndex) {
-                                        pathForClipping.addRect(Rect(0f, measuredText.getLineTop(i), size.width, measuredText.getLineBottom(i)))
-                                    }
-                                    pathForClipping.addRect(Rect(0f, measuredText.getLineTop(currentLineIndex), horizontalClip, measuredText.getLineBottom(currentLineIndex)))
-                                    
-                                    drawContext.canvas.save()
-                                    drawContext.canvas.clipPath(pathForClipping)
-                                    drawText(
-                                        textLayoutResult = measuredText,
-                                        color = activeColor.copy(alpha = 0.8f * visibilityAlpha)
-                                    )
-                                    drawContext.canvas.restore()
-                                }
-                            }
-                        }
-                    }
-            )
-        }
-    }
-}
-
-@Composable
 fun HierarchicalLyricsLine(
     line: LyricLine,
     isActive: Boolean,
@@ -443,19 +280,21 @@ fun HierarchicalLyricsLine(
     textAlign: TextAlign,
     inactiveColor: Color,
     activeColor: Color,
-    hasV2: Boolean = false,
-    lyricsTextPosition: LyricsPosition = LyricsPosition.CENTER,
+    isBgLine: Boolean = false,
 ) {
     val lyricsGlowEffect by rememberPreference(LyricsGlowEffectKey, false)
     val textMeasurer = rememberTextMeasurer()
     val lyricsTextSize by rememberPreference(LyricsTextSizeKey, 24f)
     val lyricsLineSpacing by rememberPreference(LyricsLineSpacingKey, 1.3f)
+    
+    // BG lines are smaller
+    val effectiveFontSize = if (isBgLine) lyricsTextSize * 0.7f else lyricsTextSize
 
     val textStyle = TextStyle(
-        fontSize = if (line.speaker is SpeakerRole.BG) (lyricsTextSize * 0.8f).sp else lyricsTextSize.sp,
-        fontWeight = FontWeight.Bold,
+        fontSize = effectiveFontSize.sp,
+        fontWeight = if (isBgLine) FontWeight.Medium else FontWeight.Bold,
         textAlign = textAlign,
-        lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
+        lineHeight = (effectiveFontSize * lyricsLineSpacing).sp,
     )
 
 
@@ -649,20 +488,6 @@ fun HierarchicalLyricsLine(
                         }
                     }
                 }
-        )
-    }
-    
-    // Render BG line below the main line if present
-    line.bgLine?.let { bgLine ->
-        BackgroundVocalLine(
-            bgLine = bgLine,
-            parentIsActive = isActive,
-            currentPosition = currentPosition,
-            parentSpeaker = line.speaker,
-            hasV2 = hasV2,
-            inactiveColor = inactiveColor,
-            activeColor = activeColor,
-            lyricsTextPosition = lyricsTextPosition,
         )
     }
 }
@@ -1188,33 +1013,22 @@ fun Lyrics(
                         })
                 ) {
                     itemsIndexed(lines, key = { index, item -> "$index-${item.startTime}" }) { index, line ->
+                        val isBgLine = line.speaker is SpeakerRole.BG
+                        
+                        // For BG lines, use parentSpeaker for alignment; otherwise use the line's speaker
+                        val effectiveSpeakerForAlignment = if (isBgLine) {
+                            line.parentSpeaker ?: SpeakerRole.V1
+                        } else {
+                            line.speaker
+                        }
 
-                        val textAlign = when (line.speaker) {
+                        val textAlign = when (effectiveSpeakerForAlignment) {
                             is SpeakerRole.V1 -> if (hasV2) TextAlign.End else when (lyricsTextPosition) {
                                 LyricsPosition.LEFT -> TextAlign.Left
                                 LyricsPosition.CENTER -> TextAlign.Center
                                 LyricsPosition.RIGHT -> TextAlign.Right
                             }
                             is SpeakerRole.V2 -> TextAlign.Start
-                            is SpeakerRole.BG -> {
-                                // Look back to find the last prominent speaker
-                                var effectiveSpeaker: SpeakerRole? = null
-                                for (i in index - 1 downTo 0) {
-                                    val prevSpeaker = lines[i].speaker
-                                    if (prevSpeaker is SpeakerRole.V1 || prevSpeaker is SpeakerRole.V2) {
-                                        effectiveSpeaker = prevSpeaker
-                                        break
-                                    }
-                                }
-                                
-                                if (effectiveSpeaker is SpeakerRole.V1 && hasV2) TextAlign.End 
-                                else if (effectiveSpeaker is SpeakerRole.V2) TextAlign.Start 
-                                else when (lyricsTextPosition) {
-                                    LyricsPosition.LEFT -> TextAlign.Left
-                                    LyricsPosition.CENTER -> TextAlign.Center
-                                    LyricsPosition.RIGHT -> TextAlign.Right
-                                }
-                            }
                             else -> when (lyricsTextPosition) {
                                 LyricsPosition.LEFT -> TextAlign.Left
                                 LyricsPosition.CENTER -> TextAlign.Center
@@ -1224,6 +1038,34 @@ fun Lyrics(
 
                         val isActiveLine = activeLineIndices.contains(index)
                         val isSelected = selectedIndices.contains(index)
+                        
+                        // BG line visibility: visible when active or not yet finished
+                        val bgStartTimeMs = (line.startTime * 1000).toLong()
+                        val bgEndTimeMs = (line.endTime * 1000).toLong()
+                        val isBgVisible = if (isBgLine) {
+                            // BG is visible from slightly before start until end
+                            currentPlaybackPosition >= (bgStartTimeMs - 300) && currentPlaybackPosition <= bgEndTimeMs
+                        } else true
+                        
+                        // Animate BG visibility
+                        val bgAlpha by animateFloatAsState(
+                            targetValue = if (isBgVisible) 1f else 0f,
+                            animationSpec = tween(
+                                durationMillis = if (isBgVisible) 200 else 300,
+                                easing = FastOutSlowInEasing
+                            ),
+                            label = "bgAlpha"
+                        )
+                        
+                        // Bounce scale for BG lines
+                        val bgScale by animateFloatAsState(
+                            targetValue = if (isBgLine && isActiveLine) 1f else if (isBgLine) 0.95f else 1f,
+                            animationSpec = tween(
+                                durationMillis = 250,
+                                easing = FastOutSlowInEasing
+                            ),
+                            label = "bgScale"
+                        )
 
                         // Only apply blur for Apple Music (Enhanced) style
                         val animatedBlur = if (lyricsAnimationStyle == LyricsAnimationStyle.APPLE_ENHANCED) {
@@ -1241,58 +1083,74 @@ fun Lyrics(
                         } else {
                             0.dp
                         }
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .blur(radius = animatedBlur)
-                                .clip(RoundedCornerShape(8.dp))
-                                .combinedClickable(
-                                    enabled = true,
-                                    onClick = {
-                                        if (isSelectionModeActive) {
-                                            if (isSelected) {
-                                                selectedIndices.remove(index)
-                                                if (selectedIndices.isEmpty()) {
-                                                    isSelectionModeActive = false
-                                                }
-                                            } else {
-                                                if (selectedIndices.size < maxSelectionLimit) {
-                                                    selectedIndices.add(index)
-                                                } else {
-                                                    showMaxSelectionToast = true
-                                                }
-                                            }
-                                        } else if (isSynced && changeLyrics) {
-                                            playerConnection.player.seekTo((line.startTime * 1000).toLong())
-                                            scope.launch {
-                                                lazyListState.animateScrollToItem(index = index)
-                                            }
-                                            lastPreviewTime = 0L
-                                        }
-                                    },
-                                    onLongClick = {
-                                        if (!isSelectionModeActive) {
-                                            isSelectionModeActive = true
-                                            selectedIndices.add(index)
-                                        }
-                                    }
-                                )
-                                .background(
-                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                                    else Color.Transparent
-                                )
+                        
+                        // For BG lines, animate height to create space dynamically
+                        AnimatedVisibility(
+                            visible = !isBgLine || isBgVisible,
+                            enter = fadeIn(animationSpec = tween(200)) + expandVertically(animationSpec = tween(200)),
+                            exit = fadeOut(animationSpec = tween(300)) + shrinkVertically(animationSpec = tween(300))
                         ) {
-                            HierarchicalLyricsLine(
-                                line = line,
-                                isActive = isActiveLine,
-                                currentPosition = currentPlaybackPosition,
-                                textAlign = textAlign,
-                                inactiveColor = expressiveAccent.copy(alpha = 0.5f),
-                                activeColor = expressiveAccent,
-                                hasV2 = hasV2,
-                                lyricsTextPosition = lyricsTextPosition,
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (isBgLine) {
+                                            Modifier
+                                                .graphicsLayer {
+                                                    alpha = bgAlpha
+                                                    scaleX = bgScale
+                                                    scaleY = bgScale
+                                                }
+                                        } else Modifier
+                                    )
+                                    .blur(radius = animatedBlur)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .combinedClickable(
+                                        enabled = true,
+                                        onClick = {
+                                            if (isSelectionModeActive) {
+                                                if (isSelected) {
+                                                    selectedIndices.remove(index)
+                                                    if (selectedIndices.isEmpty()) {
+                                                        isSelectionModeActive = false
+                                                    }
+                                                } else {
+                                                    if (selectedIndices.size < maxSelectionLimit) {
+                                                        selectedIndices.add(index)
+                                                    } else {
+                                                        showMaxSelectionToast = true
+                                                    }
+                                                }
+                                            } else if (isSynced && changeLyrics) {
+                                                playerConnection.player.seekTo((line.startTime * 1000).toLong())
+                                                scope.launch {
+                                                    lazyListState.animateScrollToItem(index = index)
+                                                }
+                                                lastPreviewTime = 0L
+                                            }
+                                        },
+                                        onLongClick = {
+                                            if (!isSelectionModeActive) {
+                                                isSelectionModeActive = true
+                                                selectedIndices.add(index)
+                                            }
+                                        }
+                                    )
+                                    .background(
+                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                        else Color.Transparent
+                                    )
+                            ) {
+                                HierarchicalLyricsLine(
+                                    line = line,
+                                    isActive = isActiveLine,
+                                    currentPosition = currentPlaybackPosition,
+                                    textAlign = textAlign,
+                                    inactiveColor = expressiveAccent.copy(alpha = if (isBgLine) 0.4f else 0.5f),
+                                    activeColor = expressiveAccent.copy(alpha = if (isBgLine) 0.85f else 1f),
+                                    isBgLine = isBgLine,
+                                )
+                            }
                         }
                     }
                 }
