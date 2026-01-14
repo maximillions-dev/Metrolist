@@ -346,6 +346,7 @@ val LyricsAppleEnhancedBlurKey = booleanPreferencesKey("lyricsAppleEnhancedBlur"
 val LyricsAppleEnhancedBlurAmountKey = floatPreferencesKey("lyricsAppleEnhancedBlurAmount")
 val LyricsHigherAnchorKey = booleanPreferencesKey("lyricsHigherAnchor")
 val LyricsStandbyEffectKey = booleanPreferencesKey("lyricsStandbyEffect")
+val LyricsFullscreenHideQuickSettingsKey = booleanPreferencesKey("lyricsFullscreenHideQuickSettings")
 
 val LyricsAnimationStyleKey = stringPreferencesKey("lyricsAnimationStyle")
 enum class LyricsAnimationStyle {
