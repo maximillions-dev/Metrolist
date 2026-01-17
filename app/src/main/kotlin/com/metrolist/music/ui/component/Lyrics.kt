@@ -144,7 +144,7 @@ import com.metrolist.music.constants.LyricsClickKey
 import com.metrolist.music.constants.LyricsRomanizeBelarusianKey
 import com.metrolist.music.constants.LyricsRomanizeBulgarianKey
 import com.metrolist.music.constants.LyricsRomanizeCyrillicByLineKey
-import com.metrolist.music.constants.LyricsGlowEffectKey
+
 import com.metrolist.music.constants.LyricsAppleEnhancedBlurKey
 import com.metrolist.music.constants.LyricsAppleEnhancedBlurAmountKey
 import com.metrolist.music.constants.LyricsHigherAnchorKey
@@ -203,8 +203,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.seconds
 
-private const val MAX_GLOW_RADIUS = 30f
-private const val GLOW_ALPHA_DIVISOR = 40f
+
 
 private fun calculateTargetBlur(
     isScrolling: Boolean,
@@ -362,6 +361,49 @@ private fun rememberStandbyState(
 }
 
 /**
+ * Calculates the standby state for Standard .lrc lyrics (non word-by-word)
+ * For .lrc files, we show the standby indicator before the first line becomes active
+ */
+@Composable
+private fun rememberStandbyStateForStandard(
+    lines: List<LyricsEntry>,
+    currentPosition: Long,
+    activeLineIndices: Set<Int>
+): StandbyState {
+    if (lines.isEmpty()) return StandbyState()
+    
+    // Skip the HEAD_LYRICS_ENTRY (index 0) and find the first real line
+    val firstRealLineIndex = lines.indexOfFirst { it.time > 0 }
+    if (firstRealLineIndex == -1) return StandbyState()
+    
+    val firstLine = lines[firstRealLineIndex]
+    val firstLineStartMs = firstLine.time
+    
+    // Show standby before first line becomes active
+    // If we're before the first line and the gap is significant
+    if (currentPosition < firstLineStartMs && activeLineIndices.isEmpty()) {
+        val gapDuration = firstLineStartMs - 0L // Time from start to first line
+        
+        if (gapDuration > STANDBY_THRESHOLD_MS) {
+            val standbyDuration = gapDuration - STANDBY_HIDE_BEFORE_MS
+            val progress = (currentPosition.toFloat() / standbyDuration.toFloat()).coerceIn(0f, 1f)
+            
+            // Hide standby 400ms before first line
+            val timeUntilFirstLine = firstLineStartMs - currentPosition
+            if (timeUntilFirstLine > STANDBY_HIDE_BEFORE_MS) {
+                return StandbyState(
+                    isVisible = true,
+                    progress = progress,
+                    insertAfterIndex = 0 // Insert after HEAD_LYRICS_ENTRY (index 0)
+                )
+            }
+        }
+    }
+    
+    return StandbyState()
+}
+
+/**
  * Standby indicator composable that shows a wavy progress indicator during long intervals
  * with smooth space-opening animation and graceful exit effect
  */
@@ -466,7 +508,6 @@ fun HierarchicalLyricsLine(
     activeColor: Color,
     isBgLine: Boolean = false,
 ) {
-    val lyricsGlowEffect by rememberPreference(LyricsGlowEffectKey, false)
     val textMeasurer = rememberTextMeasurer()
     val lyricsTextSize by rememberPreference(LyricsTextSizeKey, 24f)
     val lyricsLineSpacing by rememberPreference(LyricsLineSpacingKey, 1.3f)
@@ -481,127 +522,36 @@ fun HierarchicalLyricsLine(
         lineHeight = (effectiveFontSize * lyricsLineSpacing).sp,
     )
 
+    // Find all currently active words (handles simultaneous/overlapping words)
+    val activeWords = if (isActive) {
+        line.words.mapIndexedNotNull { index, word ->
+            val wordStartMs = (word.startTime * 1000).toLong()
+            val wordEndMs = (word.endTime * 1000).toLong()
+            if (currentPosition >= wordStartMs && currentPosition <= wordEndMs) {
+                index to word
+            } else null
+        }
+    } else {
+        val lineEndTime = (line.endTime * 1000f).toLong()
+        if (currentPosition > lineEndTime) {
+            // Line has ended - all words are complete
+            line.words.mapIndexed { index, word -> index to word }
+        } else emptyList()
+    }
 
-    // Use raw playback position for smoother animation
-    val activeWordIndex = if (isActive) {
+    // Find the furthest word that has started (for the main clip boundary)
+    val furthestActiveWordIndex = if (isActive) {
         line.words.indexOfLast { (it.startTime * 1000) <= currentPosition }
     } else {
         val lineEndTime = (line.endTime * 1000f)
         if (currentPosition > lineEndTime) line.words.lastIndex else -1
     }
 
-
-    val activeWord = line.words.getOrNull(activeWordIndex)
-
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 4.dp)
     ) {
-
-
-        if (lyricsGlowEffect) {
-             // Identify words that deserve "High Intensity" glow
-             val highIntensityWords = remember(line.words) {
-                 val highIntensitySet = mutableSetOf<com.metrolist.music.lyrics.Word>()
-                 val chains = mutableListOf<MutableList<com.metrolist.music.lyrics.Word>>()
-                 var currentChain: MutableList<com.metrolist.music.lyrics.Word>? = null
-
-                 for (word in line.words) {
-                     // Individual long words always get a glow
-                     val wordDuration = (word.endTime * 1000) - (word.startTime * 1000)
-                     if (wordDuration >= 1700) {
-                         highIntensitySet.add(word)
-                     }
-
-                     if (currentChain == null) {
-                         if (word.text.endsWith("-")) {
-                             currentChain = mutableListOf(word)
-                             chains.add(currentChain)
-                         }
-                     } else {
-                         currentChain.add(word)
-                         if (!word.text.endsWith("-")) {
-                             currentChain = null
-                         }
-                     }
-                 }
-
-                 for (chain in chains) {
-                     val chainStartMs = (chain.first().startTime * 1000).toLong()
-                     val chainEndMs = (chain.last().endTime * 1000).toLong()
-                     val chainDuration = chainEndMs - chainStartMs
-
-                     if (chainDuration >= 1700) {
-                         highIntensitySet.add(chain.last())
-                     }
-                 }
-
-                 highIntensitySet
-             }
-
-             val glowingText = buildAnnotatedString {
-                line.words.forEach { word ->
-                    val wordStartMs = (word.startTime * 1000).toLong()
-                    val wordEndMs = (word.endTime * 1000).toLong()
-                    val wordDuration = wordEndMs - wordStartMs
-
-                    // Determine intensity
-                    val isHighIntensity = highIntensityWords.contains(word)
-                    
-                    // Config based on intensity
-                    val maxAlpha = if (isHighIntensity) 1.0f else 0.6f
-                    val maxRadius = if (isHighIntensity) MAX_GLOW_RADIUS else MAX_GLOW_RADIUS * 0.6f
-                    val fadeInDuration = 200f // Fast attack for "bouncy" feel
-                    val fadeOutDuration = if (isHighIntensity) 800f else 400f
-                    
-                    val timeSinceStart = (currentPosition - wordStartMs).toFloat()
-                    val timeSinceEnd = (currentPosition - wordEndMs).toFloat()
-
-                    val rawAlpha = when {
-                        // Before word: No glow
-                        currentPosition < wordStartMs -> 0f
-                        
-                        // Fade In (Fast)
-                        currentPosition in wordStartMs..wordEndMs -> {
-                            val progress = (timeSinceStart / fadeInDuration).coerceIn(0f, 1f)
-                            // "Bouncy" ease out (overshoot-like or just quadOut)
-                            // Using QuadOut for snappiness: 1 - (1-x)^2
-                            1f - (1f - progress) * (1f - progress)
-                        }
-                        
-                        // Fade Out
-                        currentPosition > wordEndMs -> {
-                            val progress = (timeSinceEnd / fadeOutDuration).coerceIn(0f, 1f)
-                            1f - progress
-                        }
-                        
-                        else -> 0f
-                    }
-                    
-                    val finalAlpha = rawAlpha * maxAlpha
-
-                    if (finalAlpha > 0.01f) {
-                         val glowShadow = Shadow(
-                            color = activeColor.copy(alpha = (finalAlpha * 0.8f).coerceIn(0f, 1f)),
-                            offset = Offset.Zero,
-                            blurRadius = maxRadius * finalAlpha // Scale radius with alpha for "pulse" effect
-                        )
-                        withStyle(style = SpanStyle(shadow = glowShadow)) {
-                            append(word.text)
-                        }
-                    } else {
-                        append(word.text)
-                    }
-                }
-            }
-            Text(
-                text = glowingText,
-                style = textStyle.copy(color = Color.Transparent),
-                modifier = Modifier.matchParentSize()
-            )
-        }
-
         Text(
             text = line.text,
             style = textStyle,
@@ -616,51 +566,105 @@ fun HierarchicalLyricsLine(
                     )
 
                     onDrawBehind {
+                        // Draw inactive (background) text
                         drawText(
                             textLayoutResult = measuredText,
                             color = inactiveColor,
                         )
 
-                        if (activeWordIndex != -1) {
-                            val wordToProcess = activeWord ?: line.words.last()
-                            val activeWordStartOffset = line.words.take(activeWordIndex).sumOf { it.text.length }
-
-                            val wordProgress = if (isActive) {
-                                val wordStartTime = (wordToProcess.startTime * 1000f)
-                                val wordEndTime = (wordToProcess.endTime * 1000f)
-                                val wordDuration = wordEndTime - wordStartTime
-                                if (wordDuration > 0) {
-                                    ((currentPosition - wordStartTime) / wordDuration).coerceIn(0f, 1f)
-                                } else 1f
-                            } else 1f
-
-                            val wordProgressFloat = wordToProcess.text.length * wordProgress
-                            val currentCharIndex = wordProgressFloat.toInt()
-                            val subCharProgress = wordProgressFloat - currentCharIndex
-
-                            val totalCharOffsetStart = activeWordStartOffset + currentCharIndex
-                            val totalCharOffsetEnd = (totalCharOffsetStart + 1).coerceAtMost(measuredText.layoutInput.text.length)
-
-                            val clipStart = measuredText.getHorizontalPosition(totalCharOffsetStart, true)
-                            val clipEnd = measuredText.getHorizontalPosition(totalCharOffsetEnd, true)
-
-                            val startLine = measuredText.getLineForOffset(totalCharOffsetStart)
-                            val endLine = measuredText.getLineForOffset(totalCharOffsetEnd)
-
-                            val horizontalClip = if (startLine != endLine || clipEnd < clipStart) {
-                                clipStart
-                            } else {
-                                clipStart + (clipEnd - clipStart) * subCharProgress
-                            }
-
-                            if (horizontalClip > 0) {
-                                val pathForClipping = androidx.compose.ui.graphics.Path()
-                                val currentLineIndex = measuredText.getLineForOffset(totalCharOffsetStart)
-                                for (i in 0 until currentLineIndex) {
-                                    pathForClipping.addRect(Rect(0f, measuredText.getLineTop(i), size.width, measuredText.getLineBottom(i)))
+                        if (furthestActiveWordIndex != -1) {
+                            // Calculate clip path that includes all completed words AND current active words
+                            val pathForClipping = androidx.compose.ui.graphics.Path()
+                            
+                            // Add all fully completed lines
+                            var completedCharCount = 0
+                            
+                            // For each word up to and including the furthest active one
+                            for (wordIdx in 0..furthestActiveWordIndex) {
+                                val word = line.words[wordIdx]
+                                val wordStartMs = (word.startTime * 1000f)
+                                val wordEndMs = (word.endTime * 1000f)
+                                val wordDuration = wordEndMs - wordStartMs
+                                
+                                val wordProgress = when {
+                                    !isActive -> 1f  // Line ended, all complete
+                                    currentPosition >= wordEndMs -> 1f  // Word fully complete
+                                    currentPosition >= wordStartMs && wordDuration > 0 -> {
+                                        // Word is currently being sung - apply smooth easing
+                                        val rawProgress = ((currentPosition - wordStartMs) / wordDuration).coerceIn(0f, 1f)
+                                        // Smooth cubic easing to prevent snapping
+                                        rawProgress * rawProgress * (3f - 2f * rawProgress)
+                                    }
+                                    else -> 0f  // Word hasn't started
                                 }
-                                pathForClipping.addRect(Rect(0f, measuredText.getLineTop(currentLineIndex), horizontalClip, measuredText.getLineBottom(currentLineIndex)))
-
+                                
+                                val wordStartOffset = line.words.take(wordIdx).sumOf { it.text.length }
+                                val wordLength = word.text.length
+                                
+                                // Calculate how many characters of this word are complete
+                                val completedCharsInWord = (wordLength * wordProgress).toInt()
+                                val subCharProgress = (wordLength * wordProgress) - completedCharsInWord
+                                
+                                // Add completed characters to the clip path
+                                if (completedCharsInWord > 0 || subCharProgress > 0) {
+                                    val charStart = wordStartOffset
+                                    val charEnd = wordStartOffset + completedCharsInWord
+                                    
+                                    // Get the horizontal position for the current character
+                                    val clipEnd = if (completedCharsInWord < wordLength) {
+                                        val currentCharOffset = wordStartOffset + completedCharsInWord
+                                        val nextCharOffset = (currentCharOffset + 1).coerceAtMost(measuredText.layoutInput.text.length)
+                                        val posStart = measuredText.getHorizontalPosition(currentCharOffset, true)
+                                        val posEnd = measuredText.getHorizontalPosition(nextCharOffset, true)
+                                        
+                                        val startLine = measuredText.getLineForOffset(currentCharOffset)
+                                        val endLine = measuredText.getLineForOffset(nextCharOffset)
+                                        
+                                        if (startLine != endLine || posEnd < posStart) {
+                                            posStart
+                                        } else {
+                                            posStart + (posEnd - posStart) * subCharProgress
+                                        }
+                                    } else {
+                                        // Entire word is complete
+                                        val lastCharOffset = (wordStartOffset + wordLength).coerceAtMost(measuredText.layoutInput.text.length)
+                                        measuredText.getHorizontalPosition(lastCharOffset, true)
+                                    }
+                                    
+                                    // Determine which line this word ends on
+                                    val lastCharIdx = (wordStartOffset + completedCharsInWord).coerceAtMost(measuredText.layoutInput.text.length - 1).coerceAtLeast(0)
+                                    val currentLineIdx = if (measuredText.layoutInput.text.isNotEmpty()) {
+                                        measuredText.getLineForOffset(lastCharIdx)
+                                    } else 0
+                                    
+                                    // Add all fully completed text lines before this one
+                                    for (lineIdx in 0 until currentLineIdx) {
+                                        pathForClipping.addRect(
+                                            Rect(
+                                                0f,
+                                                measuredText.getLineTop(lineIdx),
+                                                size.width,
+                                                measuredText.getLineBottom(lineIdx)
+                                            )
+                                        )
+                                    }
+                                    
+                                    // Add partial line up to current position
+                                    if (clipEnd > 0) {
+                                        pathForClipping.addRect(
+                                            Rect(
+                                                0f,
+                                                measuredText.getLineTop(currentLineIdx),
+                                                clipEnd,
+                                                measuredText.getLineBottom(currentLineIdx)
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                            
+                            // Draw the active colored text clipped to completed area
+                            if (!pathForClipping.isEmpty) {
                                 drawContext.canvas.save()
                                 drawContext.canvas.clipPath(pathForClipping)
                                 drawText(
@@ -709,7 +713,7 @@ fun Lyrics(
     val romanizeMacedonianLyrics by rememberPreference(LyricsRomanizeMacedonianKey, true)
     val romanizeCyrillicByLine by rememberPreference(LyricsRomanizeCyrillicByLineKey, false)
     val romanizeChineseLyrics by rememberPreference(LyricsRomanizeChineseKey, true)
-    val lyricsGlowEffect by rememberPreference(LyricsGlowEffectKey, false)
+
     val lyricsHigherAnchor by rememberPreference(LyricsHigherAnchorKey, false)
     val lyricsAnimationStyle by rememberEnumPreference(LyricsAnimationStyleKey, LyricsAnimationStyle.APPLE)
     val lyricsTextSize by rememberPreference(LyricsTextSizeKey, 24f)
@@ -1212,6 +1216,8 @@ fun Lyrics(
                 val lines = (lyricsContent as LyricsContent.Hierarchical).lines
                 var lastPrimarySpeaker: SpeakerRole by remember { mutableStateOf(SpeakerRole.V1) }
                 val hasV2 = remember(lines) { lines.any { it.speaker is SpeakerRole.V2 } }
+                val hasV1 = remember(lines) { lines.any { it.speaker is SpeakerRole.V1 } }
+                val hasBothV1AndV2 = hasV1 && hasV2
                 
                 // Standby effect state
                 val lyricsStandbyEffect by rememberPreference(LyricsStandbyEffectKey, false)
@@ -1307,12 +1313,16 @@ fun Lyrics(
                         }
 
                         val textAlign = when (effectiveSpeakerForAlignment) {
-                            is SpeakerRole.V1 -> if (hasV2) TextAlign.End else when (lyricsTextPosition) {
+                            is SpeakerRole.V1 -> if (hasBothV1AndV2) TextAlign.End else when (lyricsTextPosition) {
                                 LyricsPosition.LEFT -> TextAlign.Left
                                 LyricsPosition.CENTER -> TextAlign.Center
                                 LyricsPosition.RIGHT -> TextAlign.Right
                             }
-                            is SpeakerRole.V2 -> TextAlign.Start
+                            is SpeakerRole.V2 -> if (hasBothV1AndV2) TextAlign.Start else when (lyricsTextPosition) {
+                                LyricsPosition.LEFT -> TextAlign.Left
+                                LyricsPosition.CENTER -> TextAlign.Center
+                                LyricsPosition.RIGHT -> TextAlign.Right
+                            }
                             else -> when (lyricsTextPosition) {
                                 LyricsPosition.LEFT -> TextAlign.Left
                                 LyricsPosition.CENTER -> TextAlign.Center
@@ -1478,6 +1488,15 @@ fun Lyrics(
             }
             is LyricsContent.Standard -> {
                 val lines = (lyricsContent as LyricsContent.Standard).lines
+                
+                // Standby effect state for Standard lyrics
+                val lyricsStandbyEffect by rememberPreference(LyricsStandbyEffectKey, false)
+                val standardStandbyState = rememberStandbyStateForStandard(
+                    lines = lines,
+                    currentPosition = currentPlaybackPosition,
+                    activeLineIndices = activeLineIndices
+                )
+                
                 LazyColumn(
                 state = lazyListState,
                 contentPadding = WindowInsets.systemBars
@@ -1525,6 +1544,45 @@ fun Lyrics(
                     items = lines,
                     key = { index, item -> "$index-${item.time}" } // Add stable key
                 ) { index, item ->
+                    // Show standby indicator after HEAD_LYRICS_ENTRY (index 0) before first real line
+                    val showStandbyHere = lyricsStandbyEffect && 
+                        standardStandbyState.isVisible && 
+                        standardStandbyState.insertAfterIndex == index
+                    
+                    AnimatedVisibility(
+                        visible = showStandbyHere,
+                        enter = fadeIn(animationSpec = tween(400, easing = FastOutSlowInEasing)) +
+                                expandVertically(
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessLow
+                                    ),
+                                    expandFrom = Alignment.CenterVertically
+                                ) +
+                                scaleIn(
+                                    initialScale = 0.6f,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                    )
+                                ),
+                        exit = scaleOut(
+                                    targetScale = 1.2f,
+                                    animationSpec = tween(200, easing = FastOutSlowInEasing)
+                                ) +
+                                fadeOut(animationSpec = tween(300, easing = FastOutSlowInEasing)) +
+                                shrinkVertically(
+                                    animationSpec = tween(350, easing = FastOutSlowInEasing),
+                                    shrinkTowards = Alignment.CenterVertically
+                                )
+                    ) {
+                        StandbyIndicator(
+                            progress = standardStandbyState.progress,
+                            color = expressiveAccent,
+                            isPlaying = isPlaying
+                        )
+                    }
+                    
                     val isSelected = selectedIndices.contains(index)
                     val itemModifier = Modifier
                         .fillMaxWidth()
@@ -1961,83 +2019,6 @@ fun Lyrics(
                                 }
                             }
                             Text(text = styledText, fontSize = lyricsTextSize.sp, textAlign = alignment, lineHeight = (lyricsTextSize * lyricsLineSpacing).sp)
-                        } else if (isActiveLine && lyricsGlowEffect) {
-                            // Active line with glow effect - animated glow fill with bounce
-                            val fillProgress = remember { Animatable(0f) }
-                            val pulseProgress = remember { Animatable(0f) }
-
-                            LaunchedEffect(index) {
-                                fillProgress.snapTo(0f)
-                                fillProgress.animateTo(
-                                    targetValue = 1f,
-                                    animationSpec = tween(
-                                        durationMillis = 1200,
-                                        easing = FastOutSlowInEasing
-                                    )
-                                )
-                            }
-
-                            LaunchedEffect(Unit) {
-                                while (true) {
-                                    pulseProgress.animateTo(
-                                        targetValue = 1f,
-                                        animationSpec = tween(
-                                            durationMillis = 3000,
-                                            easing = LinearEasing
-                                        )
-                                    )
-                                    pulseProgress.snapTo(0f)
-                                }
-                            }
-
-                            val fill = fillProgress.value
-                            val pulse = pulseProgress.value
-
-                            val pulseEffect = (kotlin.math.sin(pulse * Math.PI.toFloat()) * 0.15f).coerceIn(0f, 0.15f)
-                            val glowIntensity = (fill + pulseEffect).coerceIn(0f, 1.2f)
-
-                            val glowBrush = Brush.horizontalGradient(
-                                0.0f to expressiveAccent.copy(alpha = 0.3f),
-                                (fill * 0.7f).coerceIn(0f, 1f) to expressiveAccent.copy(alpha = 0.9f),
-                                fill to expressiveAccent,
-                                (fill + 0.1f).coerceIn(0f, 1f) to expressiveAccent.copy(alpha = 0.7f),
-                                1.0f to expressiveAccent.copy(alpha = if (fill >= 1f) 1f else 0.3f)
-                            )
-
-                            val styledText = buildAnnotatedString {
-                                withStyle(
-                                    style = SpanStyle(
-                                        shadow = Shadow(
-                                            color = expressiveAccent.copy(alpha = 0.8f * glowIntensity),
-                                            offset = Offset(0f, 0f),
-                                            blurRadius = 28f * (1f + pulseEffect)
-                                        ),
-                                        brush = glowBrush
-                                    )
-                                ) {
-                                    append(item.text)
-                                }
-                            }
-
-                            // Bounce animation
-                            val bounceScale = if (fill < 0.3f) {
-                                1f + (kotlin.math.sin(fill * 3.33f * Math.PI.toFloat()) * 0.03f)
-                            } else {
-                                1f
-                            }
-
-                            Text(
-                                text = styledText,
-                                fontSize = lyricsTextSize.sp,
-                                textAlign = alignment,
-                                fontWeight = FontWeight.ExtraBold,
-                                lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
-                                modifier = Modifier
-                                    .graphicsLayer {
-                                        scaleX = bounceScale
-                                        scaleY = bounceScale
-                                    }
-                            )
                         } else if (isActiveLine) {
                             // Active line without glow effect - just bold text
                             Text(
