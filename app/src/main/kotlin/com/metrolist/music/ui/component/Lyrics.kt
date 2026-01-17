@@ -238,19 +238,9 @@ private fun calculateTargetBlur(
 
     if (delta == 0) return 0.dp
     
-    // Only remove blur when we're very close to the active line (within 2-3 lines)
-    // This prevents the blur from disappearing too early
-    val blurRemovalThreshold = 3
-    if (delta <= blurRemovalThreshold) {
-        return 0.dp
-    }
-    
-    // Adjust delta to account for the threshold, so blur starts after 3 lines
-    val adjustedDelta = delta - blurRemovalThreshold
-    
     // Use exponential falloff for smoother blur transition
     // This prevents the "square" artifact by creating a more natural blur gradient
-    val linearBlur = (stepBlur * adjustedDelta).coerceAtMost(maxBlur)
+    val linearBlur = (stepBlur * delta).coerceAtMost(maxBlur)
     val normalizedDistance = (linearBlur.value / maxBlur.value).coerceIn(0f, 1f)
     
     // Apply ease-out curve for smoother transition
@@ -1115,36 +1105,19 @@ fun Lyrics(
             isAnimating = false
         }
     }
-    LaunchedEffect(scrollTargetMinIndex, scrollTargetMaxIndex, lastPreviewTime, initialScrollDone, isAutoScrollEnabled, activeLineIndices) {
-        // Always ensure we focus on the active or latest active line, even when auto-scroll is disabled
-        val shouldFocusOnActiveLine = !initialScrollDone || 
-            (!isAutoScrollEnabled && activeLineIndices.isEmpty() && lastKnownActiveLineIndex >= 0)
+    LaunchedEffect(scrollTargetMinIndex, scrollTargetMaxIndex, lastPreviewTime, initialScrollDone, isAutoScrollEnabled) {
+        if (!isSynced || !isAutoScrollEnabled) return@LaunchedEffect
 
         if (lyricsContent is LyricsContent.Hierarchical) {
-            val targetMinIndex = if (scrollTargetMinIndex == -1 && shouldFocusOnActiveLine) {
-                lastKnownActiveLineIndex
-            } else {
-                scrollTargetMinIndex
-            }
-            
-            val targetMaxIndex = if (scrollTargetMaxIndex == -1 && shouldFocusOnActiveLine) {
-                lastKnownActiveLineIndex
-            } else {
-                scrollTargetMaxIndex
-            }
-            
-            if (targetMinIndex == -1) return@LaunchedEffect
+            if (scrollTargetMinIndex == -1) return@LaunchedEffect
 
-            if (targetMinIndex != previousScrollTargetMinIndex || targetMaxIndex != previousScrollTargetMaxIndex || shouldFocusOnActiveLine) {
+            if (scrollTargetMinIndex != previousScrollTargetMinIndex || scrollTargetMaxIndex != previousScrollTargetMaxIndex) {
                 val lines = lyricsContent.lines
                 val previousLine = lines.getOrNull(previousScrollTargetMaxIndex)
-                val currentLine = lines.getOrNull(targetMinIndex)
+                val currentLine = lines.getOrNull(scrollTargetMinIndex)
 
                 if (previousScrollTargetMinIndex == -1 && currentLine != null) {
-                    performSmoothPageScroll(targetMinIndex, targetMaxIndex, 800)
-                } else if (shouldFocusOnActiveLine) {
-                    // Quick focus when opening lyrics or resyncing
-                    performSmoothPageScroll(targetMinIndex, targetMaxIndex, 800)
+                    performSmoothPageScroll(scrollTargetMinIndex, scrollTargetMaxIndex, 800)
                 } else if (previousLine != null && currentLine != null) {
                     val previousLineEndTimeMs = (previousLine.endTime * 1000).toLong()
                     val scrollThresholdTimeMs = (currentLine.startTime * 1000).toLong() + 200
@@ -1154,46 +1127,40 @@ fun Lyrics(
                         delay(delayDuration)
                     }
 
-                    val originalMin = targetMinIndex
-                    val originalMax = targetMaxIndex
+                    val originalMin = scrollTargetMinIndex
+                    val originalMax = scrollTargetMaxIndex
                     val currentMinAfterDelay = activeLineIndices.minOrNull() ?: -1
                     val currentMaxAfterDelay = activeLineIndices.maxOrNull() ?: -1
                     if (isActive && originalMin == currentMinAfterDelay && originalMax == currentMaxAfterDelay) {
                         performSmoothPageScroll(originalMin, originalMax, 1500)
                     }
                 }
-                previousScrollTargetMinIndex = targetMinIndex
-                previousScrollTargetMaxIndex = targetMaxIndex
+                previousScrollTargetMinIndex = scrollTargetMinIndex
+                previousScrollTargetMaxIndex = scrollTargetMaxIndex
             }
         } else {
             // Standard lyrics only have one active line, so min=max=midpoint
-            val targetIndex = if (midpointIndex == -1 && shouldFocusOnActiveLine) {
-                lastKnownActiveLineIndex
-            } else {
-                midpointIndex
-            }
-            
-            if (targetIndex == -1) return@LaunchedEffect
+            if (midpointIndex == -1) return@LaunchedEffect
             val previousMidpointIndex = ((previousScrollTargetMinIndex.toFloat() + previousScrollTargetMaxIndex.toFloat()) / 2f).roundToInt()
 
-            if ((targetIndex == 0 && shouldScrollToFirstLine) || !initialScrollDone || shouldFocusOnActiveLine) {
+            if ((midpointIndex == 0 && shouldScrollToFirstLine) || !initialScrollDone) {
                 shouldScrollToFirstLine = false
-                performSmoothPageScroll(targetIndex, targetIndex, 800)
+                performSmoothPageScroll(midpointIndex, midpointIndex, 800)
                 if (!isAppMinimized) {
                     initialScrollDone = true
                 }
-            } else if (isAutoScrollEnabled) {
-                deferredCurrentLineIndex = targetIndex
+            } else {
+                deferredCurrentLineIndex = midpointIndex
                 if (isSeeking) {
-                    val seekCenterIndex = kotlin.math.max(0, targetIndex - 1)
+                    val seekCenterIndex = kotlin.math.max(0, midpointIndex - 1)
                     performSmoothPageScroll(seekCenterIndex, seekCenterIndex, 500)
-                } else if ((lastPreviewTime == 0L || targetIndex != previousMidpointIndex) && scrollLyrics) {
-                    if (targetIndex != previousMidpointIndex) {
-                        performSmoothPageScroll(targetIndex, targetIndex, 1500)
+                } else if ((lastPreviewTime == 0L || midpointIndex != previousMidpointIndex) && scrollLyrics) {
+                    if (midpointIndex != previousMidpointIndex) {
+                        performSmoothPageScroll(midpointIndex, midpointIndex, 1500)
                     }
                 }
             }
-            if (targetIndex > 0) {
+            if (midpointIndex > 0) {
                 shouldScrollToFirstLine = true
             }
             previousScrollTargetMinIndex = scrollTargetMinIndex
@@ -1245,12 +1212,6 @@ fun Lyrics(
                 val lines = (lyricsContent as LyricsContent.Hierarchical).lines
                 var lastPrimarySpeaker: SpeakerRole by remember { mutableStateOf(SpeakerRole.V1) }
                 val hasV2 = remember(lines) { lines.any { it.speaker is SpeakerRole.V2 } }
-                val hasV1 = remember(lines) { lines.any { it.speaker is SpeakerRole.V1 } }
-                val hasOnlyV1AndBg = remember(lines) { 
-                    lines.any { it.speaker is SpeakerRole.V1 } && 
-                    lines.any { it.speaker is SpeakerRole.BG } && 
-                    !lines.any { it.speaker is SpeakerRole.V2 }
-                }
                 
                 // Standby effect state
                 val lyricsStandbyEffect by rememberPreference(LyricsStandbyEffectKey, false)
@@ -1346,16 +1307,12 @@ fun Lyrics(
                         }
 
                         val textAlign = when (effectiveSpeakerForAlignment) {
-                            is SpeakerRole.V1 -> if (hasV2 && !hasOnlyV1AndBg) TextAlign.End else when (lyricsTextPosition) {
+                            is SpeakerRole.V1 -> if (hasV2) TextAlign.End else when (lyricsTextPosition) {
                                 LyricsPosition.LEFT -> TextAlign.Left
                                 LyricsPosition.CENTER -> TextAlign.Center
                                 LyricsPosition.RIGHT -> TextAlign.Right
                             }
-                            is SpeakerRole.V2 -> if (!hasOnlyV1AndBg) TextAlign.Start else when (lyricsTextPosition) {
-                                LyricsPosition.LEFT -> TextAlign.Left
-                                LyricsPosition.CENTER -> TextAlign.Center
-                                LyricsPosition.RIGHT -> TextAlign.Right
-                            }
+                            is SpeakerRole.V2 -> TextAlign.Start
                             else -> when (lyricsTextPosition) {
                                 LyricsPosition.LEFT -> TextAlign.Left
                                 LyricsPosition.CENTER -> TextAlign.Center
@@ -1896,17 +1853,8 @@ fun Lyrics(
                                     if (isWordActive && wordDuration > 0) {
                                         val timeElapsed = currentPlaybackPosition - wordStartMs
                                         val linearProgress = (timeElapsed.toFloat() / wordDuration.toFloat()).coerceIn(0f, 1f)
-                                        // Smoother easing curve for more natural fill animation - prevent snapping
-                                        val fillProgress = if (linearProgress < 0.1f) {
-                                            // Very smooth start to prevent snapping
-                                            linearProgress * linearProgress * 10f
-                                        } else if (linearProgress > 0.9f) {
-                                            // Very smooth end to prevent snapping
-                                            1f - (1f - linearProgress) * (1f - linearProgress) * 10f
-                                        } else {
-                                            // Smooth cubic easing for middle part
-                                            linearProgress * linearProgress * (3f - 2f * linearProgress)
-                                        }.coerceIn(0f, 1f)
+                                        // Smoother easing curve for more natural fill animation
+                                        val fillProgress = linearProgress * linearProgress * (3f - 2f * linearProgress)
                                         
                                         // Enhanced glow intensity calculation
                                         val glowIntensity = fillProgress * fillProgress
@@ -1974,17 +1922,8 @@ fun Lyrics(
                                         (elapsed.toFloat() / wordDuration).coerceIn(0f, 1f)
                                     } else if (hasWordPassed) 1f else 0f
 
-                                    // Smooth cubic easing for natural animation - prevent snapping
-                                    val smoothProgress = if (rawProgress < 0.1f) {
-                                        // Very smooth start to prevent snapping
-                                        rawProgress * rawProgress * 10f
-                                    } else if (rawProgress > 0.9f) {
-                                        // Very smooth end to prevent snapping
-                                        1f - (1f - rawProgress) * (1f - rawProgress) * 10f
-                                    } else {
-                                        // Smooth cubic easing for middle part
-                                        rawProgress * rawProgress * (3f - 2f * rawProgress)
-                                    }.coerceIn(0f, 1f)
+                                    // Smooth cubic easing for natural animation
+                                    val smoothProgress = rawProgress * rawProgress * (3f - 2f * rawProgress)
 
                                     val wordAlpha = when {
                                         !isActiveLine -> 0.55f
