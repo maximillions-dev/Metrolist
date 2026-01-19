@@ -683,18 +683,43 @@ fun HierarchicalLyricsLine(
 
                                 val lineTop = measuredText.getLineTop(currentLineIndex)
                                 val lineBottom = measuredText.getLineBottom(currentLineIndex)
-                                val fadeWidth = 60f
+                                var fadeWidth = 60f
+                                var effectiveClip = horizontalClip
+
+                                if (isActive) {
+                                    // Check if we are past the current word (in the gap or at end of line)
+                                    val wordEndTimeMs = (wordToProcess.endTime * 1000f)
+                                    val timeSinceEnd = (currentPosition - wordEndTimeMs).coerceAtLeast(0f)
+                                    
+                                    if (timeSinceEnd > 0) {
+                                        if (activeWordIndex == line.words.lastIndex) {
+                                            // If it's the last word, push the clip forward to clear the gradient
+                                            val pushProgress = (timeSinceEnd / 300f).coerceIn(0f, 1f)
+                                            effectiveClip += (fadeWidth * 2f) * pushProgress
+                                        } else {
+                                            // If intermediate word, shrink fade width to solidify end
+                                            val shrinkProgress = (timeSinceEnd / 200f).coerceIn(0f, 1f)
+                                            fadeWidth *= (1f - shrinkProgress)
+                                        }
+                                    }
+                                } else {
+                                    // If line is not active (past line), ensure full fill
+                                    val lineEndTimeMs = (line.endTime * 1000f)
+                                    if (currentPosition > lineEndTimeMs) {
+                                        effectiveClip = size.width + fadeWidth
+                                    }
+                                }
 
                                 // Mask out the future part of the current line
-                                if (horizontalClip < size.width) {
+                                if (effectiveClip < size.width) {
                                     drawContext.canvas.drawRect(
-                                        Rect(horizontalClip, lineTop, size.width, lineBottom),
+                                        Rect(effectiveClip, lineTop, size.width, lineBottom),
                                         maskPaint
                                     )
                                 }
 
-                                val gradientStart = (horizontalClip - fadeWidth).coerceAtLeast(0f)
-                                val gradientEnd = horizontalClip
+                                val gradientStart = (effectiveClip - fadeWidth).coerceAtLeast(0f)
+                                val gradientEnd = effectiveClip
 
                                 if (gradientEnd > gradientStart) {
                                     val gradient = Brush.horizontalGradient(
