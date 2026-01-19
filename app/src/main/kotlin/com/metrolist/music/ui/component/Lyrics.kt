@@ -1532,7 +1532,7 @@ fun Lyrics(
                                     isActive = isActiveLine,
                                     currentPosition = currentPlaybackPosition,
                                     textAlign = textAlign,
-                                    inactiveColor = expressiveAccent.copy(alpha = if (isBgLine) 0.4f else 0.5f),
+                                    inactiveColor = expressiveAccent.copy(alpha = if (isBgLine) 0.2f else 0.3f),
                                     activeColor = expressiveAccent.copy(alpha = if (isBgLine) 0.85f else 1f),
                                     isBgLine = isBgLine,
                                 )
