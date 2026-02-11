@@ -58,6 +58,7 @@ jobs:
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
 
       - name: Sign APK
+        if: ${{ secrets.KEYSTORE != '' }}
         uses: ilharp/sign-android-release@v2.0.0
         with:
           releaseDir: app/build/outputs/apk/universal${{ matrix.variant == 'foss' && 'Foss' || 'Gms' }}/release/
@@ -67,7 +68,7 @@ jobs:
           keyPassword: ${{ secrets.KEY_PASSWORD }}
           buildToolsVersion: 35.0.0
 
-      - name: Move signed APK
+      - name: Move APK
         run: |
           OUTPUT_DIR="app/build/outputs/apk/universal${{ matrix.variant == 'foss' && 'Foss' || 'Gms' }}/release"
           mkdir -p "$OUTPUT_DIR/out"
@@ -76,9 +77,27 @@ jobs:
           else
             TARGET_NAME="app-universal-release.apk"
           fi
-          find "$OUTPUT_DIR" -name "*-signed.apk" -o -name "*-unsigned-signed.apk" | xargs -I{} mv {} "$OUTPUT_DIR/out/$TARGET_NAME"
 
-      - name: Upload Signed APK
+          # Try to find signed APK first
+          SIGNED_APK=$(find "$OUTPUT_DIR" -name "*-signed.apk" -o -name "*-unsigned-signed.apk" | head -n 1)
+
+          if [ -n "$SIGNED_APK" ]; then
+            echo "Found signed APK: $SIGNED_APK"
+            mv "$SIGNED_APK" "$OUTPUT_DIR/out/$TARGET_NAME"
+          else
+            # Fallback to unsigned APK
+            UNSIGNED_APK=$(find "$OUTPUT_DIR" -name "*-unsigned.apk" | head -n 1)
+            if [ -n "$UNSIGNED_APK" ]; then
+              echo "Found unsigned APK: $UNSIGNED_APK"
+              mv "$UNSIGNED_APK" "$OUTPUT_DIR/out/$TARGET_NAME"
+            else
+              echo "No APK found to move!"
+              ls -R "$OUTPUT_DIR"
+              exit 1
+            fi
+          fi
+
+      - name: Upload APK
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.variant == 'gms' && 'app-universal-with-Google-Cast' || 'app-universal-release' }}
